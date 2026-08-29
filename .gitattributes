@@ -1,0 +1,19 @@
+# Normalize line endings (Windows + GitHub)
+* text=auto eol=lf
+
+# Dart / Flutter
+*.dart linguist-language=Dart
+*.gradle linguist-language=Gradle
+*.kt linguist-language=Kotlin
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.jar binary
+*.keystore binary
+*.jks binary

@@ -1,0 +1,6 @@
+# Copy to key.properties (gitignored) for release signing.
+# Do NOT commit key.properties or .jks files.
+storePassword=your_keystore_password
+keyPassword=your_key_password
+keyAlias=your_key_alias
+storeFile=../path/to/upload-keystore.jks

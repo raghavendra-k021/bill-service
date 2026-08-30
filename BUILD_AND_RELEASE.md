@@ -1,5 +1,7 @@
 # Building a Production Package for Installation on Devices
 
+**Project folder:** `bill-service`
+
 This guide explains how to create a **release** build of the Billing Service Android app that you can install on physical devices (phones/tablets) or distribute via Play Store.
 
 ---
@@ -21,7 +23,7 @@ This guide explains how to create a **release** build of the Billing Service And
 Use this to quickly get an APK you can install on devices **without** creating a keystore. Not for Play Store.
 
 ```bash
-cd textile_billing_android
+cd bill-service
 flutter build apk
 ```
 
@@ -51,7 +53,7 @@ keytool -genkey -v -keystore c:\path\to\your\keystore.jks -keyalg RSA -keysize 2
 
 ### Step 2: Create `key.properties`
 
-In the project root (`textile_billing_android`), create a file named **`key.properties`** with:
+In the project root (`bill-service`), create a file named **`key.properties`** with:
 
 ```properties
 storePassword=YOUR_KEYSTORE_PASSWORD
@@ -97,7 +99,7 @@ The project is set up to read `key.properties` and use it for release builds. En
 ### Step 4: Build Release APK
 
 ```bash
-cd textile_billing_android
+cd bill-service
 flutter build apk --release
 ```
 
@@ -128,7 +130,7 @@ For **Play Store** you must upload an **Android App Bundle** (`.aab`), not an AP
 1. **Signing:** Use the same keystore and `key.properties` as in Option B (Step 1–3).
 2. **Build AAB:**
    ```bash
-   cd textile_billing_android
+   cd bill-service
    flutter build appbundle --release
    ```
 3. **Output:** `build/app/outputs/bundle/release/app-release.aab`

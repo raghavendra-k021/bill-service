@@ -8,10 +8,12 @@ import '../../../widgets/custom_text_field.dart';
 
 class ProductSearchWidget extends StatefulWidget {
   final Function(ProductModel) onProductSelected;
+  final void Function(String query)? onAddNewItem;
 
   const ProductSearchWidget({
     Key? key,
     required this.onProductSelected,
+    this.onAddNewItem,
   }) : super(key: key);
 
   @override
@@ -63,16 +65,63 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
   }
 
   Future<void> _scanBarcode() async {
-    final result = await Navigator.push(
+    final result = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (context) => const BarcodeScannerScreen(),
       ),
     );
 
-    if (result != null && result is String) {
-      _searchController.text = result;
-      _performSearch(result);
+    if (!mounted || result == null || result.trim().isEmpty) return;
+
+    await _handleScannedBarcode(result.trim());
+  }
+
+  Future<void> _handleScannedBarcode(String barcode) async {
+    try {
+      final product = await _inventoryService.getProductByBarcode(barcode);
+      if (!mounted) return;
+
+      if (product != null) {
+        widget.onProductSelected(product);
+        _searchController.clear();
+        setState(() {
+          _searchResults = [];
+        });
+        return;
+      }
+
+      // Fallback: prefix search (e.g. partial reads)
+      await _performSearch(barcode);
+      if (!mounted) return;
+
+      if (_searchResults.length == 1) {
+        widget.onProductSelected(_searchResults.first);
+        _searchController.clear();
+        setState(() {
+          _searchResults = [];
+        });
+      } else if (_searchResults.isEmpty) {
+        if (widget.onAddNewItem != null) {
+          widget.onAddNewItem!(barcode);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No product found for barcode: $barcode')),
+          );
+        }
+      } else {
+        _searchController.text = barcode;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Multiple matches found. Tap a product to add.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Barcode lookup failed: $e')),
+      );
     }
   }
 
@@ -242,13 +291,24 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
             ),
           )
         else if (_searchController.text.isNotEmpty && !_isSearching)
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Center(
-              child: Text(
-                'No products found. Try browsing all products.',
-                style: TextStyle(color: Colors.grey),
-              ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                const Text(
+                  'No products found.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                if (widget.onAddNewItem != null) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        widget.onAddNewItem!(_searchController.text.trim()),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add as new item'),
+                  ),
+                ],
+              ],
             ),
           ),
       ],
@@ -272,6 +332,7 @@ class BarcodeScannerScreen extends StatefulWidget {
 class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
   MobileScannerController? _controller;
   bool _scannerReady = false;
+  bool _scanHandled = false;
 
   @override
   void initState() {
@@ -280,10 +341,26 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
-        _controller = MobileScannerController();
+        _controller = MobileScannerController(
+          detectionSpeed: DetectionSpeed.noDuplicates,
+        );
         _scannerReady = true;
       });
     });
+  }
+
+  void _onBarcodeDetected(BarcodeCapture capture) {
+    if (_scanHandled || !mounted) return;
+
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue?.trim();
+      if (value == null || value.isEmpty) continue;
+
+      _scanHandled = true;
+      _controller?.stop();
+      Navigator.pop(context, value);
+      return;
+    }
   }
 
   @override
@@ -295,15 +372,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       body: _scannerReady && _controller != null
           ? MobileScanner(
               controller: _controller!,
-              onDetect: (capture) {
-                final List<Barcode> barcodes = capture.barcodes;
-                for (final barcode in barcodes) {
-                  if (barcode.rawValue != null) {
-                    Navigator.pop(context, barcode.rawValue);
-                    break;
-                  }
-                }
-              },
+              onDetect: _onBarcodeDetected,
             )
           : const Center(
               child: Column(

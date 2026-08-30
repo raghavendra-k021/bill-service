@@ -62,6 +62,7 @@ dependencies:
   
   # Biometric Authentication
   local_auth: ^2.1.7
+  flutter_classic_bluetooth: ^1.0.0
   
   # Work Manager for scheduled tasks
   # Note: Temporarily removed due to compatibility issues with Flutter embedding v2

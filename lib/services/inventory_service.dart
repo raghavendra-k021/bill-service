@@ -59,6 +59,69 @@ class InventoryService {
     )).toList();
   }
 
+  Future<ProductModel?> getProductByBarcode(String barcode) async {
+    final product = await database.productDao.getProductByBarcode(barcode.trim());
+    if (product == null) return null;
+    return _toModel(product);
+  }
+
+  /// Creates a product during billing when item is not in inventory.
+  Future<ProductModel> createProductFromBilling({
+    required String name,
+    String? barcode,
+    required double sellingPrice,
+    required double discountPercent,
+    required String unit,
+    required double quantity,
+    double gstPercent = AppConstants.gstRateBelow1000,
+  }) async {
+    final trimmedBarcode = barcode?.trim();
+    final resolvedBarcode = (trimmedBarcode == null || trimmedBarcode.isEmpty)
+        ? 'AUTO${DateTime.now().millisecondsSinceEpoch}'
+        : trimmedBarcode;
+
+    final stockQty = quantity.ceil().clamp(1, 999999);
+
+    final id = await addProduct(ProductModel(
+      barcode: resolvedBarcode,
+      name: name.trim(),
+      purchasePrice: sellingPrice,
+      sellingPrice: sellingPrice,
+      gstPercent: gstPercent,
+      defaultDiscountPercent: discountPercent,
+      currentStock: stockQty,
+      minStockAlert: 0,
+      unit: unit,
+    ));
+
+    return ProductModel(
+      id: id,
+      barcode: resolvedBarcode,
+      name: name.trim(),
+      purchasePrice: sellingPrice,
+      sellingPrice: sellingPrice,
+      gstPercent: gstPercent,
+      defaultDiscountPercent: discountPercent,
+      currentStock: stockQty,
+      minStockAlert: 0,
+      unit: unit,
+    );
+  }
+
+  ProductModel _toModel(dynamic p) => ProductModel(
+        id: p.id,
+        barcode: p.barcode,
+        name: p.name,
+        categoryId: p.categoryId,
+        purchasePrice: p.purchasePrice,
+        sellingPrice: p.sellingPrice,
+        gstPercent: p.gstPercent,
+        defaultDiscountPercent: p.defaultDiscountPercent,
+        currentStock: p.currentStock,
+        minStockAlert: p.minStockAlert,
+        unit: p.unit,
+      );
+
   Future<int> addProduct(ProductModel product) async {
     return await database.productDao.insertProduct(
       ProductsCompanion.insert(

@@ -1,5 +1,9 @@
 # Testing Guide for Billing Service Android App
 
+**Project folder:** `bill-service` · **Package:** `com.billingservice.app`
+
+See **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** for the full feature list.
+
 ## Prerequisites
 
 1. **Flutter SDK** (3.0.0 or higher)
@@ -27,7 +31,7 @@
 
 ### 1.1 Navigate to Project Directory
 ```bash
-cd c:\Users\raghak\workspace_raghak\textile_billing_android
+cd c:\Users\raghak\workspace_raghak\bill-service
 ```
 
 ### 1.2 Install Dependencies
@@ -178,22 +182,22 @@ flutter run
 
 **Test Cases:**
 1. **Open from Inventory**
-   - Go to Inventory, tap barcode icon next to a product
-   - Expected: Barcode screen shows product name, price, Code 128 barcode
+   - Tap barcode icon next to a product
+   - Expected: Name, price, Code 128 barcode matching product barcode (e.g. `101000`)
 
 2. **Share / Save as PDF**
-   - On barcode screen, tap "Share / Save as PDF"
-   - Expected: System share sheet opens; can save or share PDF
+   - Tap "Share / Save as PDF"
+   - Expected: PDF barcode matches on-screen value
 
-3. **Print to Bluetooth** (if printer connected in Settings)
+3. **Print to Bluetooth** (physical device + printer in Settings)
    - Tap "Print to Bluetooth Printer"
-   - Expected: Label sent to printer or error if not connected
+   - Expected: Printed bars and text show **same barcode as screen** (not garbled numbers like `444444` or `494849484848`)
+   - **Scan printed label** with billing scanner → product found and added to cart
 
-4. **Open from Edit Product**
-   - Edit a product that has a barcode; tap barcode icon in app bar
-   - Expected: Same barcode screen opens
+4. **Reprint after app update**
+   - Old labels printed before bitmap fix may scan wrong — reprint labels after updating app
 
-**Expected Result:** ✅ Barcode display and PDF share work; Bluetooth print works when printer is connected
+**Expected Result:** ✅ Softcopy, PDF, and thermal print all encode the same barcode value
 
 ---
 
@@ -227,54 +231,44 @@ flutter run
 
 **Test Cases:**
 1. **Product Search**
-   - Search by barcode or name **starts with** (e.g. "10" matches barcode 10150, not 11120; "sar" matches "saree")
-   - Type in search box; tap on product
-   - Expected: Added to cart
+   - Search by name or barcode **starts with**
+   - Tap product → **Add dialog** opens (quantity, **price**, **discount %**)
+   - Expected: Item added with values from dialog
 
 2. **Barcode Scanning**
-   - Tap barcode scanner icon
-   - Expected: Camera opens
-   - Scan a barcode (or use test barcode)
-   - Expected: Product found and added to cart
+   - Tap scanner icon → scan known product barcode
+   - Expected: Returns to billing (does **not** exit billing screen); product added via dialog
 
-3. **Manual Barcode Entry**
-   - Type barcode in search
-   - Expected: Finds product by barcode
+3. **Unknown Barcode**
+   - Scan barcode not in inventory
+   - Expected: **Add New Item** dialog (name, barcode pre-filled, unit, qty, price, discount, **GST default 5%**)
+   - Save → product in **Inventory** and **cart**
 
-4. **Cart Management**
-   - Add multiple products
-   - Change quantities (+/- buttons)
-   - Remove items (delete icon)
-   - Expected: Cart updates correctly
+4. **Add New Item (+ button)**
+   - Tap **+** in billing app bar
+   - Expected: Same new-item dialog; optional barcode auto-generated if left blank
 
-5. **Customer Selection**
-   - Open customer dropdown
-   - Select a customer or "Walk-in Customer"
-   - Expected: Customer selected
+5. **Edit Cart**
+   - Tap **₹ price × qty** line on cart item
+   - Expected: Edit quantity, price, discount
 
-6. **Payment Mode**
-   - Select payment mode (Cash, Card, UPI, etc.)
-   - Expected: Mode selected
+6. **Cart Management**
+   - +/- quantity, delete item
+   - Expected: Summary updates
 
-7. **Discount**
-   - Enter discount percentage
-   - Expected: Bill summary updates
+7. **Customer & Payment**
+   - Select customer and payment mode
+   - Expected: Saved on bill
 
-8. **GST Calculation**
-   - Add products (each product has a GST % in Inventory)
-   - GST is applied **after** item discount; Gross Total shown **without** GST; CGST and SGST displayed
-   - Expected: GST uses each product’s GST %; bill summary shows Gross Total (excl. GST), then CGST/SGST
+8. **GST on Bill**
+   - Uses each product’s GST % from Inventory
+   - Gross Total **excl. GST**; CGST/SGST shown
 
 9. **Save Bill**
-   - Fill all details
-   - Tap "Save Bill"
-   - Expected: 
-     - Bill saved successfully
-     - Invoice number is 4-digit (e.g. 0001, 0002)
-     - Cart cleared
-     - Stock updated
+   - Tap Save Bill
+   - Expected: 4-digit invoice number, cart cleared, stock updated, optional print
 
-**Expected Result:** ✅ Complete billing flow works
+**Expected Result:** ✅ Full billing flow including price edit and new inventory items
 
 ---
 
@@ -299,10 +293,12 @@ flutter run
      - Gross Total (without GST), CGST, SGST, Payment (no "Total GST" or "Total" line)
 
 4. **Export PDF / Print**
-   - Tap PDF or print icon
-   - Expected: PDF/print shows **price × quantity with Rs and unit** per item; **Total Items** on next line after Gross Total; custom footer if set in Settings
+   - Tap PDF or print
+   - Expected: Item lines, TOTAL DISCOUNT, Gross Total, GST, payment
+   - **Footer text left-aligned**; **QR code on the right**
+   - QR payload format: `INV:<no>|AMT:<total>|DT:<date>`
 
-**Expected Result:** ✅ Bills viewing works correctly
+**Expected Result:** ✅ Bills viewing, PDF, and print layout correct
 
 ---
 
@@ -310,30 +306,25 @@ flutter run
 
 **Test Cases:**
 1. **Sales Report**
-   - Navigate to Reports
-   - Select "Sales" tab
-   - Select date range
-   - Expected: Shows:
-     - Total sales
-     - Invoice count
-     - Average sale
+   - Reports → Sales tab → date range
+   - Expected cards:
+     - **Total Sales (excl. GST)**
+     - **Total GST**
+     - **Total (incl. GST)**
+     - Total Invoices
+     - **Average Sale (excl. GST)**
 
-2. **GST Report**
-   - Select "GST" tab
-   - Expected: Shows:
-     - Total GST
-     - CGST, SGST, IGST breakdown
-     - Taxable amount
+2. **Excel Export**
+   - Tap Download Excel
+   - Expected columns: Invoice, Date, Customer, **Subtotal (excl. GST)**, GST, Total
 
-3. **Analytics**
-   - Select "Analytics" tab
-   - Expected: Shows charts/graphs
+3. **GST Report**
+   - GST tab → CGST, SGST, taxable amount
 
-4. **Export to Excel**
-   - Tap "Export to Excel" button
-   - Expected: Excel file created
+4. **Analytics**
+   - Charts use sales totals
 
-**Expected Result:** ✅ Reports generate correctly
+**Expected Result:** ✅ Reports and Excel match excl/incl GST rules
 
 ---
 
@@ -341,28 +332,26 @@ flutter run
 
 **Test Cases:**
 1. **Shop Details**
-   - Enter shop information
-   - Tap "Save Shop Details"
-   - Expected: Settings saved
+   - Settings shows shop summary card
+   - Tap **Edit Shop Details**
+   - Enter name, address, logo, footer
+   - **Phone optional** — save with phone blank
+   - Expected: Saved; logo/footer on receipts
 
-2. **Footer (bills & receipts)**
-   - Enter a custom footer (e.g. "Thank you for your Business!" or "Exchange valid for 7 days from the billing date.")
-   - Save shop details
-   - Create or open a bill → view PDF or print receipt
-   - Expected: Custom footer appears at bottom of invoice PDF and thermal receipt; if left empty, default "Thank you for your business!" is used
+2. **Footer + QR on bills**
+   - Set custom footer text
+   - Save bill → PDF or print
+   - Expected: Footer **left**, **QR right**; default footer if empty
 
-3. **Google Drive Backup**
-   - Tap backup button
-   - Sign in to Google (if not signed in)
-   - Expected: Backup created and uploaded
+3. **Bluetooth Printer**
+   - Scan/connect printer (SPP preferred)
+   - Test print from Settings
+   - Print receipt and barcode label
 
-4. **Printer Setup**
-   - Tap "Scan for Printers"
-   - Expected: Scans for Bluetooth printers
-   - Select printer
-   - Expected: Connects to printer
+4. **Google Drive Backup**
+   - Sign in and run backup (optional)
 
-**Expected Result:** ✅ Settings work correctly
+**Expected Result:** ✅ Settings and receipt layout work
 
 ---
 

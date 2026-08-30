@@ -35,7 +35,7 @@ class BillingService {
       final gstCalc = GSTCalculator.calculateGST(
         price: cartItem.unitPrice,
         quantity: cartItem.quantity,
-        gstRate: product.gstPercent,
+        gstRate: cartItem.gstPercent,
         discountPercent: cartItem.discountPercent,
         isInterState: isInterState,
       );

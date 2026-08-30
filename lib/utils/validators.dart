@@ -32,6 +32,20 @@ class Validators {
     return null;
   }
 
+  static String? validateOptionalPhone(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    final trimmed = value.trim();
+    if (trimmed.length < 10 || trimmed.length > 15) {
+      return 'Phone number must be 10-15 digits';
+    }
+    if (!RegExp(r'^[0-9]+$').hasMatch(trimmed)) {
+      return 'Phone number must contain only digits';
+    }
+    return null;
+  }
+
   static String? validateEmail(String? value) {
     if (value == null || value.isEmpty) {
       return null; // Email is optional

@@ -119,15 +119,33 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      _buildSummaryCard('Total Sales', Formatters.formatCurrency(report.totalSales), Colors.green),
+                      _buildSummaryCard(
+                        'Total Sales (excl. GST)',
+                        Formatters.formatCurrency(report.totalSales),
+                        Colors.green,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSummaryCard(
+                        'Total GST',
+                        Formatters.formatCurrency(report.totalGST),
+                        Colors.teal,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSummaryCard(
+                        'Total (incl. GST)',
+                        Formatters.formatCurrency(report.totalWithGst),
+                        Colors.indigo,
+                      ),
                       const SizedBox(height: 16),
                       _buildSummaryCard('Total Invoices', report.invoiceCount.toString(), Colors.blue),
                       const SizedBox(height: 16),
-                      _buildSummaryCard('Average Sale', 
-                        Formatters.formatCurrency(report.invoiceCount > 0 
-                          ? report.totalSales / report.invoiceCount 
-                          : 0.0), 
-                        Colors.orange),
+                      _buildSummaryCard(
+                        'Average Sale (excl. GST)',
+                        Formatters.formatCurrency(report.invoiceCount > 0
+                            ? report.totalSales / report.invoiceCount
+                            : 0.0),
+                        Colors.orange,
+                      ),
                     ],
                   ),
                 ),
@@ -254,7 +272,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
                             : BarChart(
                                 BarChartData(
                                   alignment: BarChartAlignment.spaceAround,
-                                  maxY: report.totalSales,
+                                  maxY: report.totalWithGst,
                                   barTouchData: BarTouchData(enabled: false),
                                   titlesData: FlTitlesData(show: false),
                                   borderData: FlBorderData(show: false),

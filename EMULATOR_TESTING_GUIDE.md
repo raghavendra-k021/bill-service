@@ -1,8 +1,17 @@
 # Testing on Android Emulator - Complete Guide
 
+**Project folder:** `bill-service` (working copy)
+
 ## ✅ Yes, the app can be tested on Android Emulator!
 
-The application works perfectly on emulator for most features. Some hardware-dependent features (camera, Bluetooth) have limitations, but all core functionality works.
+Most features work on emulator. **Camera barcode scan** and **Bluetooth print** need a physical device for full testing (receipt layout, barcode labels, invoice QR on thermal paper).
+
+### Recent features to verify on device
+
+- Barcode label **thermal print** matches screen (scan printed label in billing)
+- **Invoice QR** on receipt (footer left, QR right)
+- **Add new item** from billing → inventory + cart
+- **Sales report** excl/incl GST split and Excel export
 
 ---
 
@@ -69,7 +78,7 @@ If the device does **not** appear:
 2. In terminal from the project folder:
 
 ```bash
-cd c:\Users\raghak\workspace_raghak\textile_billing_android
+cd c:\Users\raghak\workspace_raghak\bill-service
 flutter run
 ```
 
@@ -173,7 +182,7 @@ Chrome (web)                • chrome       • web-javascript • Google Chrom
 ### 4.1 Navigate to Project
 
 ```bash
-cd c:\Users\raghak\workspace_raghak\textile_billing_android
+cd c:\Users\raghak\workspace_raghak\bill-service
 ```
 
 ### 4.2 Generate Database Code (If Not Done)
@@ -672,7 +681,7 @@ emulator -avd Billing_Service_Test
 flutter devices
 
 # 3. Run app
-cd textile_billing_android
+cd bill-service
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter run

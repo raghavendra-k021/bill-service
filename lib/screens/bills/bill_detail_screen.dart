@@ -25,9 +25,7 @@ class BillDetailScreen extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.print),
-            onPressed: () async {
-              // Print functionality
-            },
+            onPressed: () => _printBill(context, database),
           ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf),
@@ -100,12 +98,12 @@ class BillDetailScreen extends StatelessWidget {
                     return Padding(
                       padding: const EdgeInsets.only(top: 12.0, bottom: 12.0),
                       child: Text(
-                        'Total amount saved for the bill: ${Formatters.formatCurrency(totalSaved)}',
-                        style: TextStyle(
-                          fontSize: 16,
+                        'TOTAL DISCOUNT: ${Formatters.formatCurrency(totalSaved)}',
+                        style: const TextStyle(
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: Colors.green.shade800,
                         ),
+                        textAlign: TextAlign.center,
                       ),
                     );
                   },
@@ -239,15 +237,6 @@ class BillDetailScreen extends StatelessWidget {
                       if (invoice.gstAmount > 0) ...[
                         const Divider(),
                         const SizedBox(height: 8),
-                        const Text(
-                          'GST details:',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -324,6 +313,60 @@ class BillDetailScreen extends StatelessWidget {
       paymentStatus: invoice.paymentStatus,
       items: invoiceItems,
     );
+  }
+
+  /// Print receipt to the Bluetooth printer connected in Settings.
+  Future<void> _printBill(BuildContext context, AppDatabase database) async {
+    final appState = Provider.of<AppState>(context, listen: false);
+
+    if (!appState.printService.isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No printer connected. Connect a printer in Settings.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final invoiceModel = await _buildInvoiceModel(context, database);
+      if (!context.mounted) return;
+      Navigator.pop(context);
+
+      if (invoiceModel == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invoice not found')),
+        );
+        return;
+      }
+
+      final printed = await appState.printService.printReceipt(invoiceModel);
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            printed
+                ? 'Receipt sent to printer.'
+                : 'Print failed. Check printer connection.',
+          ),
+          backgroundColor: printed ? Colors.green : Colors.orange,
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Print failed: $e')),
+        );
+      }
+    }
   }
 
   /// Display PDF in same format as printer (receipt strip) using PdfPreviewCustom.

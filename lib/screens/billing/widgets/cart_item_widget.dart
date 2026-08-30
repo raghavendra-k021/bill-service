@@ -5,6 +5,7 @@ import '../../../utils/formatters.dart';
 class CartItemWidget extends StatelessWidget {
   final CartItem item;
   final Function(double) onQuantityChanged;
+  final VoidCallback onEdit;
   final VoidCallback onRemove;
 
   /// pcs = whole numbers only (+1 / -1); meters, kg, etc. = decimals (+0.25 / -0.25).
@@ -71,6 +72,7 @@ class CartItemWidget extends StatelessWidget {
     Key? key,
     required this.item,
     required this.onQuantityChanged,
+    required this.onEdit,
     required this.onRemove,
   }) : super(key: key);
 
@@ -118,12 +120,21 @@ class CartItemWidget extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            // Price × quantity (pcs: whole; meters/kg: decimals)
-            Text(
-              '₹${item.unitPrice.toStringAsFixed(2)} × $qtyDisplay ${item.unit}',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[700],
+            GestureDetector(
+              onTap: onEdit,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '₹${item.unitPrice.toStringAsFixed(2)} × $qtyDisplay ${item.unit}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.edit, size: 16, color: Colors.grey[600]),
+                ],
               ),
             ),
             if (discount > 0) ...[

@@ -1,5 +1,7 @@
 # Manual Gradle Install (Bypass SSL / Certificate Errors)
 
+**Project folder:** `bill-service`
+
 If `flutter run` fails with **SSL certificate error** when downloading Gradle (e.g. "PKIX path building failed"), you can download Gradle manually and place it so the build uses it without going over HTTPS.
 
 ---
@@ -9,7 +11,7 @@ If `flutter run` fails with **SSL certificate error** when downloading Gradle (e
 Run this **once** from the project folder (it will fail with SSL – that’s expected):
 
 ```powershell
-cd C:\Users\raghak\workspace_raghak\textile_billing_android
+cd C:\Users\raghak\workspace_raghak\bill-service
 flutter run
 ```
 
@@ -64,7 +66,7 @@ When it fails, Gradle will have created a folder under your user profile. You ne
 From the project folder:
 
 ```powershell
-cd C:\Users\raghak\workspace_raghak\textile_billing_android
+cd C:\Users\raghak\workspace_raghak\bill-service
 flutter run
 ```
 

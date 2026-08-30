@@ -51,7 +51,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final lowStockProducts = await _inventoryService.getLowStockProducts();
 
       setState(() {
-        _todaySales = salesReport.totalSales;
+        _todaySales = salesReport.totalWithGst;
         _todayInvoices = salesReport.invoiceCount;
         _lowStockCount = lowStockProducts.length;
         _isLoading = false;

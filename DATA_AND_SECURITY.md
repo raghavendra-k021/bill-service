@@ -1,5 +1,7 @@
 # Database Location, Security & Data Retention
 
+**App package:** `com.billingservice.app` · **Project:** `bill-service`
+
 ## Where is the database created on the device?
 
 The app uses Flutter’s **path_provider** and stores the DB in the **app-private documents directory**:

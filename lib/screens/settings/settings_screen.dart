@@ -1,17 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import '../../app_state.dart';
 import '../../database/app_database.dart';
 import '../../services/backup_service.dart';
+import '../../models/printer_device.dart';
+import '../../models/printer_scan_result.dart';
 import '../../services/print_service.dart';
-import '../../widgets/custom_button.dart';
-import '../../widgets/custom_text_field.dart';
-import '../../utils/validators.dart';
-import 'package:drift/drift.dart' as drift;
+import 'shop_details_edit_screen.dart';
 import 'users_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -26,18 +22,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late BackupService _backupService;
   late PrintService _printService;
 
-  final _shopNameController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _gstinController = TextEditingController();
-  final _stateCodeController = TextEditingController();
-  final _footerController = TextEditingController();
-
-  String? _logoPath;
+  ShopSetting? _shopSettings;
 
   bool _isBackupLoading = false;
   bool _isSignedIn = false;
+  bool _isPrinterBusy = false;
 
   @override
   void initState() {
@@ -48,27 +37,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _printService = appState.printService;
     _loadShopSettings();
     _checkBackupStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _printService.restoreSavedPrinter();
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _loadShopSettings() async {
     try {
       final settings =
           await _database.select(_database.shopSettings).getSingleOrNull();
-      if (settings != null) {
-        setState(() {
-          _shopNameController.text = settings.shopName;
-          _addressController.text = settings.address ?? '';
-          _phoneController.text = settings.phone ?? '';
-          _emailController.text = settings.email ?? '';
-          _gstinController.text = settings.gstin ?? '';
-          _stateCodeController.text = settings.stateCode ?? '';
-          _footerController.text = settings.footer ?? '';
-          _logoPath = settings.logoPath;
-        });
+      if (mounted) {
+        setState(() => _shopSettings = settings);
       }
     } catch (e) {
       // Settings not found, use defaults
     }
+  }
+
+  Future<void> _openShopDetailsEditor() async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ShopDetailsEditScreen(database: _database),
+      ),
+    );
+    if (updated == true) {
+      await _loadShopSettings();
+    }
+  }
+
+  String _shopDetailsSummary() {
+    final settings = _shopSettings;
+    if (settings == null) {
+      return 'Tap Edit to set shop name, address, and bill footer.';
+    }
+    final parts = <String>[];
+    if (settings.phone != null && settings.phone!.trim().isNotEmpty) {
+      parts.add('Phone: ${settings.phone!.trim()}');
+    }
+    if (settings.address != null && settings.address!.trim().isNotEmpty) {
+      final firstLine = settings.address!.split('\n').first.trim();
+      if (firstLine.isNotEmpty) parts.add(firstLine);
+    }
+    if (settings.gstin != null && settings.gstin!.trim().isNotEmpty) {
+      parts.add('GSTIN: ${settings.gstin!.trim()}');
+    }
+    return parts.isEmpty ? 'Shop details configured' : parts.join(' • ');
   }
 
   Future<void> _checkBackupStatus() async {
@@ -76,121 +91,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _isSignedIn = signedIn;
     });
-  }
-
-  Future<void> _pickLogo() async {
-    try {
-      final picker = ImagePicker();
-      final xFile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 400,
-        maxHeight: 400,
-        imageQuality: 85,
-      );
-      if (xFile == null || !mounted) return;
-      final dir = await getApplicationDocumentsDirectory();
-      const name = 'shop_logo.jpg';
-      final path = p.join(dir.path, name);
-      await File(xFile.path).copy(path);
-      setState(() {
-        _logoPath = path;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Logo selected. Tap Save to apply.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick image: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  void _removeLogo() {
-    setState(() {
-      _logoPath = null;
-    });
-  }
-
-  Future<void> _saveShopSettings() async {
-    try {
-      final existing =
-          await _database.select(_database.shopSettings).getSingleOrNull();
-
-      if (existing != null) {
-        await _database.update(_database.shopSettings).replace(
-              ShopSettingsCompanion(
-                id: drift.Value(existing.id),
-                shopName: drift.Value(_shopNameController.text.trim()),
-                address: drift.Value(_addressController.text.trim().isEmpty
-                    ? null
-                    : _addressController.text.trim()),
-                phone: drift.Value(_phoneController.text.trim().isEmpty
-                    ? null
-                    : _phoneController.text.trim()),
-                email: drift.Value(_emailController.text.trim().isEmpty
-                    ? null
-                    : _emailController.text.trim()),
-                gstin: drift.Value(_gstinController.text.trim().isEmpty
-                    ? null
-                    : _gstinController.text.trim()),
-                stateCode: drift.Value(_stateCodeController.text.trim().isEmpty
-                    ? null
-                    : _stateCodeController.text.trim()),
-                footer: drift.Value(_footerController.text.trim().isEmpty
-                    ? null
-                    : _footerController.text.trim()),
-                logoPath: drift.Value(_logoPath),
-              ),
-            );
-      } else {
-        await _database.into(_database.shopSettings).insert(
-              ShopSettingsCompanion.insert(
-                shopName: _shopNameController.text.trim(),
-                address: drift.Value(_addressController.text.trim().isEmpty
-                    ? null
-                    : _addressController.text.trim()),
-                phone: drift.Value(_phoneController.text.trim().isEmpty
-                    ? null
-                    : _phoneController.text.trim()),
-                email: drift.Value(_emailController.text.trim().isEmpty
-                    ? null
-                    : _emailController.text.trim()),
-                gstin: drift.Value(_gstinController.text.trim().isEmpty
-                    ? null
-                    : _gstinController.text.trim()),
-                stateCode: drift.Value(_stateCodeController.text.trim().isEmpty
-                    ? null
-                    : _stateCodeController.text.trim()),
-                footer: drift.Value(_footerController.text.trim().isEmpty
-                    ? null
-                    : _footerController.text.trim()),
-                logoPath: drift.Value(_logoPath),
-              ),
-            );
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Settings saved'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _performBackup() async {
@@ -243,63 +143,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _scanForPrinters() async {
+    setState(() => _isPrinterBusy = true);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _PrinterPickerDialog(
+        printService: _printService,
+        onSelect: (device) async {
+          Navigator.pop(dialogContext);
+          await _connectPrinter(device);
+        },
+      ),
+    );
+
+    if (mounted) setState(() => _isPrinterBusy = false);
+  }
+
+  Future<void> _connectPrinter(PrinterDevice device) async {
+    setState(() => _isPrinterBusy = true);
     try {
-      final devices = await _printService.scanForPrinters();
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Available Printers'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: devices.length,
-                itemBuilder: (context, index) {
-                  final device = devices[index];
-                  return ListTile(
-                    title: Text(device.platformName.isNotEmpty
-                        ? device.platformName
-                        : 'Unknown Device'),
-                    subtitle: Text(device.remoteId.toString()),
-                    onTap: () async {
-                      final connected =
-                          await _printService.connectToPrinter(device);
-                      Navigator.pop(context);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(connected
-                                ? 'Printer connected'
-                                : 'Failed to connect'),
-                            backgroundColor:
-                                connected ? Colors.green : Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                  );
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
+      final connected = await _printService.connectToPrinter(device);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            connected
+                ? 'Connected via ${device.typeLabel}: ${device.name}'
+                : 'Failed to connect to ${device.name}',
           ),
-        );
-      }
+          backgroundColor: connected ? Colors.green : Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isPrinterBusy = false);
+    }
+  }
+
+  Future<void> _printTestPage() async {
+    setState(() => _isPrinterBusy = true);
+    try {
+      final ok = await _printService.printTestPage();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok ? 'Test receipt sent to printer' : 'Test print failed',
+          ),
+          backgroundColor: ok ? Colors.green : Colors.red,
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('Test print failed: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isPrinterBusy = false);
+    }
+  }
+
+  Future<void> _disconnectPrinter() async {
+    setState(() => _isPrinterBusy = true);
+    try {
+      await _printService.disconnectPrinter();
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) setState(() => _isPrinterBusy = false);
     }
   }
 
@@ -327,112 +241,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (!canEditShopDetails)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 8, bottom: 8),
                 child: Text(
                   'Only admin can edit shop details.',
                   style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                 ),
               ),
-            const SizedBox(height: 16),
-            const Text('Shop Logo (printed on bills)', style: TextStyle(fontSize: 14, color: Colors.grey)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (_logoPath != null && File(_logoPath!).existsSync())
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(File(_logoPath!), width: 64, height: 64, fit: BoxFit.cover),
-                  )
-                else
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.store, size: 32, color: Colors.grey),
-                  ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextButton.icon(
-                        onPressed: canEditShopDetails ? _pickLogo : null,
-                        icon: const Icon(Icons.add_photo_alternate),
-                        label: const Text('Pick logo'),
-                      ),
-                      if (_logoPath != null)
-                        TextButton.icon(
-                          onPressed: canEditShopDetails ? _removeLogo : null,
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: const Text('Remove'),
-                          style: TextButton.styleFrom(foregroundColor: Colors.red),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_shopSettings?.logoPath != null &&
+                        File(_shopSettings!.logoPath!).existsSync())
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(_shopSettings!.logoPath!),
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
                         ),
-                    ],
-                  ),
+                      )
+                    else
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.store, size: 28, color: Colors.grey),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _shopSettings?.shopName ?? 'Shop not configured',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _shopDetailsSummary(),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'Shop Name',
-              controller: _shopNameController,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'Address',
-              controller: _addressController,
-              maxLines: 3,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'Phone',
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              validator: canEditShopDetails ? Validators.validatePhone : null,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'Email',
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              validator: canEditShopDetails ? Validators.validateEmail : null,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'GSTIN',
-              controller: _gstinController,
-              validator: canEditShopDetails ? Validators.validateGSTIN : null,
-              enabled: canEditShopDetails,
-              maxLength: 15,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'State Code',
-              controller: _stateCodeController,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            CustomTextField(
-              label: 'Footer (bills & receipts)',
-              controller: _footerController,
-              hint: 'e.g. Thank you for your business!',
-              maxLines: 3,
-              enabled: canEditShopDetails,
-            ),
-            const SizedBox(height: 16),
-            if (canEditShopDetails)
-              CustomButton(
-                text: 'Save Shop Details',
-                onPressed: _saveShopSettings,
-                width: double.infinity,
               ),
+            ),
+            if (canEditShopDetails) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _openShopDetailsEditor,
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit Shop Details'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44),
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
             const Divider(),
             const SizedBox(height: 16),
@@ -472,13 +351,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             Card(
-              child: ListTile(
-                title: const Text('Bluetooth Printer'),
-                subtitle: const Text('Scan and connect to thermal printer'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.bluetooth_searching),
-                  onPressed: _scanForPrinters,
-                ),
+              child: Column(
+                children: [
+                  ListTile(
+                    title: const Text('Bluetooth Printer'),
+                    subtitle: Text(
+                      _printService.isConnected
+                          ? 'Connected: ${_printService.connectedPrinterLabel}'
+                          : 'Tap the search icon to list paired and nearby printers.',
+                    ),
+                    trailing: _isPrinterBusy
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.bluetooth_searching),
+                            tooltip: 'Scan for printers',
+                            onPressed: _scanForPrinters,
+                          ),
+                  ),
+                  if (_printService.isConnected) ...[
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  _isPrinterBusy ? null : _printTestPage,
+                              icon: const Icon(Icons.receipt_long),
+                              label: const Text('Print test'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  _isPrinterBusy ? null : _disconnectPrinter,
+                              icon: const Icon(Icons.link_off),
+                              label: const Text('Disconnect'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             if (user?.isAdmin == true) ...[
@@ -515,16 +439,143 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+class _PrinterPickerDialog extends StatefulWidget {
+  final PrintService printService;
+  final ValueChanged<PrinterDevice> onSelect;
+
+  const _PrinterPickerDialog({
+    required this.printService,
+    required this.onSelect,
+  });
 
   @override
-  void dispose() {
-    _shopNameController.dispose();
-    _addressController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
-    _gstinController.dispose();
-    _stateCodeController.dispose();
-    _footerController.dispose();
-    super.dispose();
+  State<_PrinterPickerDialog> createState() => _PrinterPickerDialogState();
+}
+
+class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
+  PrinterScanResult? _scanResult;
+  String? _errorMessage;
+  var _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _runScan();
+  }
+
+  Future<void> _runScan() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final result = await widget.printService.scanForPrinters();
+      if (!mounted) return;
+      setState(() {
+        _scanResult = result;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Bluetooth Printers'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: _buildContent(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isLoading ? null : _runScan,
+          child: const Text('Refresh'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContent() {
+    if (_isLoading && _scanResult == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Text(
+        _errorMessage!,
+        style: const TextStyle(color: Colors.red),
+      );
+    }
+
+    final result = _scanResult;
+    if (result == null || result.isEmpty) {
+      return const Text(
+        'No printers found.\n\n'
+        '1. Pair the printer in Android Settings → Bluetooth\n'
+        '2. Tap Refresh here\n'
+        '3. Choose the device marked SPP for receipt printers',
+      );
+    }
+
+    final connected = widget.printService.connectedDevice;
+    final tiles = <Widget>[];
+
+    void addSection(String title, List<PrinterDevice> devices) {
+      if (devices.isEmpty) return;
+      tiles.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+      for (final device in devices) {
+        final isConnected = connected != null &&
+            connected.address.toUpperCase() == device.address.toUpperCase() &&
+            connected.type == device.type;
+        tiles.add(
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              device.type == PrinterConnectionType.spp
+                  ? Icons.print
+                  : Icons.bluetooth,
+            ),
+            title: Text(device.name),
+            subtitle: Text('${device.address} • ${device.typeLabel}'),
+            trailing: isConnected
+                ? const Icon(Icons.check_circle, color: Colors.green)
+                : null,
+            onTap: () => widget.onSelect(device),
+          ),
+        );
+      }
+    }
+
+    addSection('Connected in app', [
+      if (result.connectedInApp != null) result.connectedInApp!,
+    ]);
+    addSection('Paired (SPP - recommended)', result.pairedSpp);
+    addSection('Paired (BLE)', result.pairedBle);
+    addSection('Nearby', result.discovered);
+
+    return SingleChildScrollView(child: Column(children: tiles));
   }
 }

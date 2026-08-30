@@ -21,6 +21,11 @@ public final class GeneratedPluginRegistrant {
       Log.e(TAG, "Error registering plugin flutter_blue_plus_android, com.lib.flutter_blue_plus.FlutterBluePlusPlugin", e);
     }
     try {
+      flutterEngine.getPlugins().add(new com.flutter_classic_bluetooth.flutter_classic_bluetooth.FlutterClassicBluetoothPlugin());
+    } catch (Exception e) {
+      Log.e(TAG, "Error registering plugin flutter_classic_bluetooth, com.flutter_classic_bluetooth.flutter_classic_bluetooth.FlutterClassicBluetoothPlugin", e);
+    }
+    try {
       flutterEngine.getPlugins().add(new com.maniak.flutter_file_manager_android.FlutterFileManagerAndroidPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin flutter_file_manager_android, com.maniak.flutter_file_manager_android.FlutterFileManagerAndroidPlugin", e);

@@ -170,7 +170,7 @@ class _BillSummaryWidgetState extends State<BillSummaryWidget> {
             ),
             const SizedBox(height: 24),
             CustomButton(
-              text: 'Save Bill',
+              text: 'Print Bill',
               onPressed: widget.cartItems.isEmpty ? null : widget.onSave,
               width: double.infinity,
             ),

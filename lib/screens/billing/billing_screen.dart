@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../services/billing_service.dart';
+import '../../services/inventory_service.dart';
 import '../../models/product.dart';
 import '../../models/customer.dart';
 import '../../services/gst_calculator.dart';
@@ -9,6 +10,7 @@ import '../../utils/constants.dart';
 import 'widgets/product_search_widget.dart';
 import 'widgets/cart_item_widget.dart';
 import 'widgets/bill_summary_widget.dart';
+import 'widgets/add_cart_item_dialog.dart';
 
 class BillingScreen extends StatefulWidget {
   const BillingScreen({Key? key}) : super(key: key);
@@ -19,6 +21,7 @@ class BillingScreen extends StatefulWidget {
 
 class _BillingScreenState extends State<BillingScreen> {
   late BillingService _billingService;
+  late InventoryService _inventoryService;
   final List<CartItem> _cartItems = [];
   CustomerModel? _selectedCustomer;
   String _paymentMode = AppConstants.paymentModes[0];
@@ -29,79 +32,120 @@ class _BillingScreenState extends State<BillingScreen> {
     super.initState();
     final appState = Provider.of<AppState>(context, listen: false);
     _billingService = BillingService(appState.database);
+    _inventoryService = InventoryService(appState.database);
   }
 
-  static bool _isWholeUnit(String unit) {
-    final u = unit.toLowerCase();
-    return u == 'pcs' || u == 'pc' || u == 'piece' || u == 'pieces';
+  Future<void> _showAddToCartDialog(ProductModel product) async {
+    final result = await AddCartItemDialog.showForProduct(context, product);
+    if (result != null && mounted) {
+      _addToCart(
+        product,
+        quantity: result.quantity,
+        unitPrice: result.unitPrice,
+        discountPercent: result.discountPercent,
+      );
+    }
   }
 
-  Future<void> _showAddQuantityDialog(BuildContext context, ProductModel product) async {
-    final isWhole = _isWholeUnit(product.unit);
-    final controller = TextEditingController(text: '1');
-    final q = await showDialog<double>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Quantity for ${product.name} (${product.unit})'),
-        content: TextField(
-          controller: controller,
-          keyboardType: isWhole
-              ? TextInputType.number
-              : const TextInputType.numberWithOptions(decimal: true),
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: 'Quantity',
-            hintText: isWhole ? 'e.g. 1, 2, 3' : 'e.g. 1.5, 2.25',
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (value) {
-            final parsed = double.tryParse(value.replaceAll(',', '.'));
-            if (parsed != null && parsed > 0) {
-              Navigator.pop(ctx, isWhole ? parsed.roundToDouble() : parsed);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              final parsed = double.tryParse(controller.text.trim().replaceAll(',', '.'));
-              if (parsed != null && parsed > 0) {
-                Navigator.pop(ctx, isWhole ? parsed.roundToDouble() : parsed);
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
+  Future<void> _showNewProductDialog({String? initialName, String? initialBarcode}) async {
+    final result = await AddCartItemDialog.showForNewProduct(
+      context,
+      initialName: initialName,
+      initialBarcode: initialBarcode,
     );
-    if (q != null && q > 0 && mounted) _addToCart(product, quantity: q);
+    if (result == null || !mounted) return;
+
+    if (result.name == null || result.name!.trim().isEmpty) return;
+
+    try {
+      final product = await _inventoryService.createProductFromBilling(
+        name: result.name!,
+        barcode: result.barcode,
+        sellingPrice: result.unitPrice,
+        discountPercent: result.discountPercent,
+        unit: result.unit,
+        quantity: result.quantity,
+        gstPercent: result.gstPercent,
+      );
+
+      if (!mounted) return;
+
+      _addToCart(
+        product,
+        quantity: result.quantity,
+        unitPrice: result.unitPrice,
+        discountPercent: result.discountPercent,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${product.name} added to inventory and cart'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not add item: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
-  void _addToCart(ProductModel product, {double quantity = 1.0}) {
+  Future<void> _editCartItem(int index) async {
+    final item = _cartItems[index];
+    final result = await AddCartItemDialog.showForCartEdit(
+      context,
+      productName: item.productName,
+      unit: item.unit,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      discountPercent: item.discountPercent,
+    );
+    if (result == null || !mounted) return;
+
     setState(() {
-      final existingIndex = _cartItems.indexWhere((item) => item.productId == product.id);
+      _cartItems[index] = CartItem(
+        productId: item.productId,
+        productName: item.productName,
+        quantity: result.quantity,
+        unitPrice: result.unitPrice,
+        discountPercent: result.discountPercent,
+        gstPercent: item.gstPercent,
+        unit: item.unit,
+      );
+    });
+  }
+
+  void _addToCart(
+    ProductModel product, {
+    required double quantity,
+    required double unitPrice,
+    required double discountPercent,
+  }) {
+    setState(() {
+      final existingIndex =
+          _cartItems.indexWhere((item) => item.productId == product.id);
       if (existingIndex >= 0) {
         final existing = _cartItems[existingIndex];
         _cartItems[existingIndex] = CartItem(
           productId: product.id!,
           productName: product.name,
           quantity: existing.quantity + quantity,
-          unitPrice: product.sellingPrice,
+          unitPrice: existing.unitPrice,
           discountPercent: existing.discountPercent,
           gstPercent: product.gstPercent,
-          unit: existing.unit,
+          unit: product.unit,
         );
       } else {
         _cartItems.add(CartItem(
           productId: product.id!,
           productName: product.name,
           quantity: quantity,
-          unitPrice: product.sellingPrice,
-          discountPercent: product.defaultDiscountPercent,
+          unitPrice: unitPrice,
+          discountPercent: discountPercent,
           gstPercent: product.gstPercent,
           unit: product.unit,
         ));
@@ -121,16 +165,30 @@ class _BillingScreenState extends State<BillingScreen> {
       return;
     }
     setState(() {
+      final item = _cartItems[index];
       _cartItems[index] = CartItem(
-        productId: _cartItems[index].productId,
-        productName: _cartItems[index].productName,
+        productId: item.productId,
+        productName: item.productName,
         quantity: quantity,
-        unitPrice: _cartItems[index].unitPrice,
-        discountPercent: _cartItems[index].discountPercent,
-        gstPercent: _cartItems[index].gstPercent,
-        unit: _cartItems[index].unit,
+        unitPrice: item.unitPrice,
+        discountPercent: item.discountPercent,
+        gstPercent: item.gstPercent,
+        unit: item.unit,
       );
     });
+  }
+
+  void _onAddNewItemRequest(String query) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      _showNewProductDialog();
+      return;
+    }
+    final looksLikeBarcode = RegExp(r'^\d+$').hasMatch(trimmed);
+    _showNewProductDialog(
+      initialBarcode: looksLikeBarcode ? trimmed : null,
+      initialName: looksLikeBarcode ? null : trimmed,
+    );
   }
 
   InvoiceGSTSummary _calculateBillSummary() {
@@ -182,16 +240,30 @@ class _BillingScreenState extends State<BillingScreen> {
       );
 
       if (mounted) {
-        // Print to connected Bluetooth printer if available
-        try {
-          await appState.printService.printReceipt(invoice);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Bill saved: ${invoice.invoiceNumber}. Receipt sent to printer.'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } catch (_) {
+        if (appState.printService.isConnected) {
+          try {
+            final printed = await appState.printService.printReceipt(invoice);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  printed
+                      ? 'Bill saved: ${invoice.invoiceNumber}. Receipt sent to printer.'
+                      : 'Bill saved: ${invoice.invoiceNumber}. Print failed.',
+                ),
+                backgroundColor: printed ? Colors.green : Colors.orange,
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Bill saved: ${invoice.invoiceNumber}. Print failed: $e',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Bill saved: ${invoice.invoiceNumber}'),
@@ -200,7 +272,6 @@ class _BillingScreenState extends State<BillingScreen> {
           );
         }
 
-        // Clear cart
         setState(() {
           _cartItems.clear();
           _selectedCustomer = null;
@@ -218,6 +289,16 @@ class _BillingScreenState extends State<BillingScreen> {
     }
   }
 
+  Widget _productSearch({VoidCallback? onPopAfterSelect}) {
+    return ProductSearchWidget(
+      onProductSelected: (product) async {
+        await _showAddToCartDialog(product);
+        onPopAfterSelect?.call();
+      },
+      onAddNewItem: _onAddNewItemRequest,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final summary = _calculateBillSummary();
@@ -227,20 +308,26 @@ class _BillingScreenState extends State<BillingScreen> {
         title: const Text('Billing'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.add_box_outlined),
+            tooltip: 'Add new item',
+            onPressed: () => _showNewProductDialog(),
+          ),
+          IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             onPressed: () {
-              // Open product search / barcode scanner in a full-screen route (must have Scaffold for Material)
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => Scaffold(
+                  builder: (searchContext) => Scaffold(
                     appBar: AppBar(
                       title: const Text('Search or Scan Product'),
                     ),
-                    body: ProductSearchWidget(
-                      onProductSelected: (product) async {
-                        await _showAddQuantityDialog(context, product);
-                        if (context.mounted) Navigator.pop(context);
+                    body: _productSearch(
+                      onPopAfterSelect: () {
+                        if (searchContext.mounted &&
+                            Navigator.canPop(searchContext)) {
+                          Navigator.pop(searchContext);
+                        }
                       },
                     ),
                   ),
@@ -257,17 +344,14 @@ class _BillingScreenState extends State<BillingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Products section
-                ProductSearchWidget(
-                  onProductSelected: (product) => _showAddQuantityDialog(context, product),
-                ),
+                _productSearch(),
                 const Divider(height: 24, thickness: 2),
-                // Cart section - clearly separated
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: Row(
                     children: [
-                      Icon(Icons.shopping_cart, size: 22, color: Theme.of(context).primaryColor),
+                      Icon(Icons.shopping_cart,
+                          size: 22, color: Theme.of(context).primaryColor),
                       const SizedBox(width: 8),
                       Text(
                         'Your Cart (${_cartItems.length})',
@@ -295,16 +379,21 @@ class _BillingScreenState extends State<BillingScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.shopping_cart_outlined, size: 48, color: Colors.grey.shade400),
+                                  Icon(Icons.shopping_cart_outlined,
+                                      size: 48, color: Colors.grey.shade400),
                                   const SizedBox(height: 8),
                                   Text(
                                     'Cart is empty',
-                                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.grey.shade600),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Search or scan products above to add',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                                    'Search, scan, or add a new item',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade500),
                                   ),
                                 ],
                               ),
@@ -318,6 +407,7 @@ class _BillingScreenState extends State<BillingScreen> {
                                 item: _cartItems[index],
                                 onQuantityChanged: (quantity) =>
                                     _updateCartItemQuantity(index, quantity),
+                                onEdit: () => _editCartItem(index),
                                 onRemove: () => _removeFromCart(index),
                               );
                             },
@@ -330,22 +420,22 @@ class _BillingScreenState extends State<BillingScreen> {
           Expanded(
             flex: 1,
             child: BillSummaryWidget(
-                    summary: summary,
-                    cartItems: _cartItems,
-                    selectedCustomer: _selectedCustomer,
-                    paymentMode: _paymentMode,
-                    onCustomerChanged: (customer) {
-                      setState(() {
-                        _selectedCustomer = customer;
-                      });
-                    },
-                    onPaymentModeChanged: (mode) {
-                      setState(() {
-                        _paymentMode = mode;
-                      });
-                    },
-                    onSave: _saveBill,
-                  ),
+              summary: summary,
+              cartItems: _cartItems,
+              selectedCustomer: _selectedCustomer,
+              paymentMode: _paymentMode,
+              onCustomerChanged: (customer) {
+                setState(() {
+                  _selectedCustomer = customer;
+                });
+              },
+              onPaymentModeChanged: (mode) {
+                setState(() {
+                  _paymentMode = mode;
+                });
+              },
+              onSave: _saveBill,
+            ),
           ),
         ],
       ),

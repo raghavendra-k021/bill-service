@@ -3,9 +3,11 @@ import 'dart:typed_data';
 import '../database/app_database.dart';
 import '../models/invoice.dart';
 import 'package:excel/excel.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
+import 'print_service.dart';
 
 class ReportService {
   final AppDatabase database;
@@ -34,23 +36,59 @@ class ReportService {
     return quantity.toStringAsFixed(2);
   }
 
-  /// Single line, bold, for placement after invoice block and above items.
-  List<pw.Widget> _pdfSavedLineAfterInvoice(InvoiceModel invoice) {
-    double totalItemDiscount = 0.0;
-    for (var item in invoice.items) {
-      totalItemDiscount += (item.unitPrice * item.quantity) * (item.discountPercent / 100);
+  String _formatUnitShort(String unit) {
+    final normalized = unit.toLowerCase();
+    if (normalized == 'meters' ||
+        normalized == 'meter' ||
+        normalized == 'm' ||
+        normalized == 'metre' ||
+        normalized == 'metres' ||
+        normalized == 'mtr' ||
+        normalized == 'mt') {
+      return 'm';
     }
-    final totalSaved = invoice.discountAmount + totalItemDiscount;
+    if (normalized == 'pcs' ||
+        normalized == 'pc' ||
+        normalized == 'piece' ||
+        normalized == 'pieces') {
+      return 'p';
+    }
+    return unit.isNotEmpty ? unit[0].toLowerCase() : unit;
+  }
+
+  pw.Widget _pdfDivider() {
+    return pw.Column(
+      children: [
+        pw.SizedBox(height: 4),
+        pw.Divider(thickness: 0.5),
+        pw.SizedBox(height: 4),
+      ],
+    );
+  }
+
+  double _totalSavedAmount(InvoiceModel invoice) {
+    var totalItemDiscount = 0.0;
+    for (final item in invoice.items) {
+      totalItemDiscount +=
+          (item.unitPrice * item.quantity) * (item.discountPercent / 100);
+    }
+    return invoice.discountAmount + totalItemDiscount;
+  }
+
+  /// Bold TOTAL DISCOUNT line matching thermal print (no reverse).
+  List<pw.Widget> _pdfDiscountSection(InvoiceModel invoice) {
+    final totalSaved = _totalSavedAmount(invoice);
     if (totalSaved <= 0) return [];
     return [
-      pw.SizedBox(height: 4),
       pw.Text(
-        'Total amount saved for the bill: ${_formatCurrencyForPDF(totalSaved)}',
-        style: pw.TextStyle(fontSize: 10, color: PdfColors.green800, fontWeight: pw.FontWeight.bold),
+        'TOTAL DISCOUNT: ${_formatCurrencyForPDF(totalSaved)}',
+        style: pw.TextStyle(
+          fontSize: 14,
+          fontWeight: pw.FontWeight.bold,
+        ),
+        textAlign: pw.TextAlign.center,
       ),
-      pw.SizedBox(height: 8),
-      pw.Divider(thickness: 1),
-      pw.SizedBox(height: 8),
+      _pdfDivider(),
     ];
   }
 
@@ -60,11 +98,13 @@ class ReportService {
     
     double totalSales = 0.0;
     double totalGST = 0.0;
+    double totalWithGst = 0.0;
     int invoiceCount = invoices.length;
 
     for (var invoice in invoices) {
-      totalSales += invoice.totalAmount;
+      totalSales += invoice.totalAmount - invoice.gstAmount;
       totalGST += invoice.gstAmount;
+      totalWithGst += invoice.totalAmount;
     }
 
     return SalesReport(
@@ -72,6 +112,7 @@ class ReportService {
       endDate: endDate,
       totalSales: totalSales,
       totalGST: totalGST,
+      totalWithGst: totalWithGst,
       invoiceCount: invoiceCount,
       invoices: invoices,
     );
@@ -114,7 +155,7 @@ class ReportService {
     sheet.cell(CellIndex.indexByString('A1')).value = 'Invoice Number';
     sheet.cell(CellIndex.indexByString('B1')).value = 'Date';
     sheet.cell(CellIndex.indexByString('C1')).value = 'Customer';
-    sheet.cell(CellIndex.indexByString('D1')).value = 'Subtotal';
+    sheet.cell(CellIndex.indexByString('D1')).value = 'Subtotal (excl. GST)';
     sheet.cell(CellIndex.indexByString('E1')).value = 'GST';
     sheet.cell(CellIndex.indexByString('F1')).value = 'Total';
 
@@ -124,7 +165,8 @@ class ReportService {
       sheet.cell(CellIndex.indexByString('A$row')).value = invoice.invoiceNumber;
       sheet.cell(CellIndex.indexByString('B$row')).value = invoice.invoiceDate.toString();
       sheet.cell(CellIndex.indexByString('C$row')).value = invoice.customerId?.toString() ?? 'Walk-in';
-      sheet.cell(CellIndex.indexByString('D$row')).value = invoice.subtotal;
+      sheet.cell(CellIndex.indexByString('D$row')).value =
+          invoice.totalAmount - invoice.gstAmount;
       sheet.cell(CellIndex.indexByString('E$row')).value = invoice.gstAmount;
       sheet.cell(CellIndex.indexByString('F$row')).value = invoice.totalAmount;
       row++;
@@ -144,21 +186,19 @@ class ReportService {
     final baseMm = _invoiceContentHeightMm(invoice);
     final shopSettings = await database.select(database.shopSettings).getSingleOrNull();
     final hasAddress = shopSettings?.address != null && shopSettings!.address!.trim().isNotEmpty;
-    bool hasLogo = false;
-    if (shopSettings?.logoPath != null && shopSettings!.logoPath!.isNotEmpty) {
-      final file = File(shopSettings!.logoPath!);
-      if (file.existsSync()) {
-        final bytes = await file.readAsBytes();
-        hasLogo = bytes.isNotEmpty;
-      }
-    }
+    var hasHeaderImage = false;
+    try {
+      final headerBitmap =
+          await PrintService(database).buildReceiptHeaderImage(shopSettings);
+      hasHeaderImage = headerBitmap != null;
+    } catch (_) {}
     const double extraHeaderMm = 28.0;
-    return (hasLogo || hasAddress) ? (baseMm + extraHeaderMm) : baseMm;
+    return (hasHeaderImage || hasAddress) ? (baseMm + extraHeaderMm) : baseMm;
   }
 
   /// Approximate content height in mm so the PDF page fits content (footer must be visible).
   double _invoiceContentHeightMm(InvoiceModel invoice) {
-    const double baseMm = 118.0;  // header, invoice block, dividers, summary, payment, divider, footer, bottom padding
+    const double baseMm = 130.0;  // includes footer row with QR
     const double savedLineMm = 16.0;
     const double perItemMm = 20.0;
     const double gstBlockMm = 35.0;
@@ -191,27 +231,27 @@ class ReportService {
 
     // Load shop logo bytes if path is set (for left corner of header)
     Uint8List? logoBytes;
+    img.Image? headerBitmap;
     try {
-      final logoPath = shopSettings?.logoPath;
-      if (logoPath != null && logoPath.isNotEmpty) {
-        final file = File(logoPath);
-        if (file.existsSync()) {
-          final bytes = await file.readAsBytes();
-          if (bytes.isNotEmpty) {
-            logoBytes = Uint8List.fromList(bytes);
-          }
-        }
+      headerBitmap =
+          await PrintService(database).buildReceiptHeaderImage(shopSettings);
+      if (headerBitmap != null) {
+        logoBytes = Uint8List.fromList(img.encodePng(headerBitmap));
       }
     } catch (_) {}
-    final hasLogo = logoBytes != null && logoBytes.isNotEmpty;
+    final hasHeaderImage = logoBytes != null && logoBytes.isNotEmpty;
     final hasAddress = shopSettings?.address != null && shopSettings!.address!.trim().isNotEmpty;
 
     // When header has logo and/or address it takes more vertical space; add extra page height
     // so the footer is not pushed off the page (base height assumes minimal header).
     const double extraHeaderMm = 28.0;
-    final double contentHeightMm = (hasLogo || hasAddress)
+    final double contentHeightMm = (hasHeaderImage || hasAddress)
         ? (baseHeightMm + extraHeaderMm)
         : baseHeightMm;
+    const bodyFontSize = 10.0;
+    const bodyStyle = pw.TextStyle(fontSize: bodyFontSize);
+    final bodyBoldStyle =
+        pw.TextStyle(fontSize: bodyFontSize, fontWeight: pw.FontWeight.bold);
     final pageFormatWithHeight = PdfPageFormat(
       widthMm * PdfPageFormat.mm,
       contentHeightMm * PdfPageFormat.mm,
@@ -232,151 +272,142 @@ class ReportService {
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               mainAxisSize: pw.MainAxisSize.min,
               children: [
-                // Shop Header: logo on left, name/address on right
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    if (hasLogo)
-                      pw.Container(
-                        margin: const pw.EdgeInsets.only(right: 8),
-                        child: pw.Image(
-                          pw.MemoryImage(logoBytes!),
-                          width: 64,
-                          height: 64,
-                          fit: pw.BoxFit.contain,
+                if (hasHeaderImage)
+                  pw.Image(
+                    pw.MemoryImage(logoBytes!),
+                    width: pageFormatWithHeight.availableWidth,
+                    fit: pw.BoxFit.contain,
+                  )
+                else
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    children: [
+                      pw.Text(
+                        shopSettings?.shopName ?? 'Shop',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
                         ),
+                        textAlign: pw.TextAlign.center,
                       ),
+                      if (hasAddress) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          shopSettings!.address!,
+                          style: const pw.TextStyle(fontSize: 12),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ],
+                      if (shopSettings?.phone != null &&
+                          shopSettings!.phone!.trim().isNotEmpty) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          'Phone: ${shopSettings.phone!.trim()}',
+                          style: const pw.TextStyle(fontSize: 12),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ],
+                      if (shopSettings?.gstin != null &&
+                          shopSettings!.gstin!.trim().isNotEmpty) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          'GSTIN: ${shopSettings.gstin!.trim()}',
+                          style: const pw.TextStyle(fontSize: 12),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ],
+                    ],
+                  ),
+                _pdfDivider(),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'INVOICE: ${invoice.invoiceNumber}',
+                      style: bodyStyle,
+                    ),
+                    pw.Text(
+                      'DATE: ${invoice.invoiceDate.toString().substring(0, 10)}',
+                      style: bodyStyle,
+                    ),
+                  ],
+                ),
+                _pdfDivider(),
+                if (_totalSavedAmount(invoice) <= 0) _pdfDivider(),
+                ..._pdfDiscountSection(invoice),
+                pw.Row(
+                  children: [
                     pw.Expanded(
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.center,
-                        mainAxisSize: pw.MainAxisSize.min,
-                        children: [
-                          pw.Text(
-                            shopSettings?.shopName ?? 'Shop',
-                            style: pw.TextStyle(
-                              fontSize: 18,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                            textAlign: pw.TextAlign.center,
-                          ),
-                          if (shopSettings?.address != null && shopSettings!.address!.isNotEmpty)
-                            pw.SizedBox(height: 4),
-                          if (shopSettings?.address != null && shopSettings!.address!.isNotEmpty)
-                            pw.Text(
-                              shopSettings.address!,
-                              style: const pw.TextStyle(fontSize: 10),
-                              textAlign: pw.TextAlign.center,
-                            ),
-                          if (shopSettings?.phone != null && shopSettings!.phone!.isNotEmpty)
-                            pw.SizedBox(height: 2),
-                          if (shopSettings?.phone != null && shopSettings!.phone!.isNotEmpty)
-                            pw.Text(
-                              'Phone: ${shopSettings.phone}',
-                              style: const pw.TextStyle(fontSize: 10),
-                              textAlign: pw.TextAlign.center,
-                            ),
-                          if (shopSettings?.gstin != null && shopSettings!.gstin!.isNotEmpty)
-                            pw.SizedBox(height: 2),
-                          if (shopSettings?.gstin != null && shopSettings!.gstin!.isNotEmpty)
-                            pw.Text(
-                              'GSTIN: ${shopSettings.gstin}',
-                              style: const pw.TextStyle(fontSize: 10),
-                              textAlign: pw.TextAlign.center,
-                            ),
-                        ],
+                      flex: 5,
+                      child: pw.Text('Item', style: bodyBoldStyle),
+                    ),
+                    pw.Expanded(
+                      flex: 3,
+                      child: pw.Text(
+                        'Discount',
+                        style: bodyBoldStyle,
+                        textAlign: pw.TextAlign.right,
+                      ),
+                    ),
+                    pw.Expanded(
+                      flex: 4,
+                      child: pw.Text(
+                        'Total',
+                        style: bodyBoldStyle,
+                        textAlign: pw.TextAlign.right,
                       ),
                     ),
                   ],
                 ),
-                pw.SizedBox(height: 8),
-                pw.Divider(thickness: 1),
-                pw.SizedBox(height: 8),
-                
-                // Invoice Details
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'Invoice: ${invoice.invoiceNumber}',
-                      style: const pw.TextStyle(fontSize: 11),
-                    ),
-                  ],
-                ),
-                pw.SizedBox(height: 4),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'Date: ${invoice.invoiceDate.toString().substring(0, 10)}',
-                      style: const pw.TextStyle(fontSize: 11),
-                    ),
-                  ],
-                ),
-                pw.SizedBox(height: 8),
-                pw.Divider(thickness: 1),
-                pw.SizedBox(height: 8),
-                ..._pdfSavedLineAfterInvoice(invoice),
-                // Items (with discount amount and discounted total per item)
-                // Header row: Item | Discount | Total (widths prevent .00 wrapping)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Expanded(flex: 2, child: pw.Text('Item', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-                    pw.SizedBox(width: 52, child: pw.Text('Discount', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right)),
-                    pw.SizedBox(width: 58, child: pw.Text('Total', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right)),
-                  ],
-                ),
-                pw.SizedBox(height: 4),
+                _pdfDivider(),
                 ...() {
-                  final sumLineAmounts = invoice.items.fold<double>(0.0, (s, i) => s + (i.unitPrice * i.quantity));
+                  final sumLineAmounts = invoice.items.fold<double>(
+                    0.0,
+                    (s, i) => s + (i.unitPrice * i.quantity),
+                  );
                   return invoice.items.map((item) {
                     final lineAmount = item.unitPrice * item.quantity;
                     double discount;
                     if (item.discountPercent > 0) {
                       discount = lineAmount * (item.discountPercent / 100);
-                    } else if (invoice.discountAmount > 0 && sumLineAmounts > 0) {
-                      discount = (lineAmount / sumLineAmounts) * invoice.discountAmount;
+                    } else if (invoice.discountAmount > 0 &&
+                        sumLineAmounts > 0) {
+                      discount =
+                          (lineAmount / sumLineAmounts) * invoice.discountAmount;
                     } else {
                       discount = 0.0;
                     }
                     final total = lineAmount - discount;
-                    return pw.Container(
-                      margin: const pw.EdgeInsets.only(bottom: 6),
+                    return pw.Padding(
+                      padding: const pw.EdgeInsets.only(bottom: 4),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text(
-                            item.productName,
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                            ),
-                          ),
-                          pw.SizedBox(height: 2),
+                          pw.Text(item.productName, style: bodyStyle),
                           pw.Row(
-                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: pw.CrossAxisAlignment.center,
                             children: [
                               pw.Expanded(
-                                flex: 2,
+                                flex: 5,
                                 child: pw.Text(
-                                  '${_formatCurrencyForPDF(item.unitPrice)} × ${_pdfQtyDisplay(item.quantity, item.unit)} ${item.unit}',
-                                  style: const pw.TextStyle(fontSize: 10),
+                                  '${_formatCurrencyForPDF(item.unitPrice)} x ${_pdfQtyDisplay(item.quantity, item.unit)} ${_formatUnitShort(item.unit)}',
+                                  style: bodyStyle,
                                 ),
                               ),
-                              pw.SizedBox(
-                                width: 52,
+                              pw.Expanded(
+                                flex: 3,
                                 child: pw.Text(
-                                  discount > 0 ? _formatCurrencyForPDF(discount) : '0',
-                                  style: pw.TextStyle(fontSize: 9, color: discount > 0 ? PdfColors.green800 : PdfColors.grey),
+                                  discount > 0
+                                      ? _formatCurrencyForPDF(discount)
+                                      : '0',
+                                  style: bodyStyle,
                                   textAlign: pw.TextAlign.right,
                                 ),
                               ),
-                              pw.SizedBox(
-                                width: 58,
+                              pw.Expanded(
+                                flex: 4,
                                 child: pw.Text(
                                   _formatCurrencyForPDF(total),
-                                  style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+                                  style: bodyStyle,
                                   textAlign: pw.TextAlign.right,
                                 ),
                               ),
@@ -387,95 +418,95 @@ class ReportService {
                     );
                   });
                 }(),
-                
-                pw.SizedBox(height: 8),
-                pw.Divider(thickness: 1),
-                pw.SizedBox(height: 8),
-                // Gross Total
+                _pdfDivider(),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text(
                       'Gross Total:',
                       style: pw.TextStyle(
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
                     pw.Text(
-                      _formatCurrencyForPDF(invoice.totalAmount - invoice.gstAmount),
+                      _formatCurrencyForPDF(
+                        invoice.totalAmount - invoice.gstAmount,
+                      ),
                       style: pw.TextStyle(
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-                pw.SizedBox(height: 4),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Total Items:', style: const pw.TextStyle(fontSize: 11)),
-                    pw.Text(
-                      _totalItemsLine(invoice),
-                      style: const pw.TextStyle(fontSize: 11),
-                    ),
-                  ],
+                _pdfDivider(),
+                pw.Text(
+                  'Total Items: ${_totalItemsLine(invoice)}',
+                  style: bodyStyle,
                 ),
                 if (invoice.gstAmount > 0) ...[
-                  pw.SizedBox(height: 8),
-                  pw.Divider(thickness: 1),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'GST details:',
-                    style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-                  ),
-                  pw.SizedBox(height: 2),
+                  _pdfDivider(),
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text('CGST:', style: const pw.TextStyle(fontSize: 9)),
-                      pw.Text(_formatCurrencyForPDF(invoice.gstAmount / 2), style: const pw.TextStyle(fontSize: 9)),
+                      pw.Text('CGST:', style: bodyStyle),
+                      pw.Text(
+                        _formatCurrencyForPDF(invoice.gstAmount / 2),
+                        style: bodyStyle,
+                      ),
                     ],
                   ),
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text('SGST:', style: const pw.TextStyle(fontSize: 9)),
-                      pw.Text(_formatCurrencyForPDF(invoice.gstAmount / 2), style: const pw.TextStyle(fontSize: 9)),
+                      pw.Text('SGST:', style: bodyStyle),
+                      pw.Text(
+                        _formatCurrencyForPDF(invoice.gstAmount / 2),
+                        style: bodyStyle,
+                      ),
                     ],
                   ),
+                  _pdfDivider(),
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text('Total GST:', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                      pw.Text(_formatCurrencyForPDF(invoice.gstAmount), style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(
+                        'Total GST:',
+                        style: bodyBoldStyle,
+                      ),
+                      pw.Text(
+                        _formatCurrencyForPDF(invoice.gstAmount),
+                        style: bodyBoldStyle,
+                      ),
                     ],
                   ),
                 ],
-                pw.SizedBox(height: 6),
+                _pdfDivider(),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text(
-                      'Payment:',
-                      style: const pw.TextStyle(fontSize: 11),
-                    ),
-                    pw.Text(
-                      invoice.paymentMode,
-                      style: const pw.TextStyle(fontSize: 11),
-                    ),
+                    pw.Text('Payment:', style: bodyStyle),
+                    pw.Text(invoice.paymentMode, style: bodyStyle),
                   ],
                 ),
-                pw.SizedBox(height: 12),
-                pw.Divider(thickness: 1),
-                pw.SizedBox(height: 8),
-                pw.Text(
-                  shopSettings?.footer != null && shopSettings!.footer!.trim().isNotEmpty
-                      ? shopSettings.footer!.trim()
-                      : 'Thank you for your business!',
-                  style: const pw.TextStyle(fontSize: 11),
-                  textAlign: pw.TextAlign.center,
+                _pdfDivider(),
+                pw.Image(
+                  pw.MemoryImage(
+                    Uint8List.fromList(
+                      img.encodePng(
+                        PrintService(database).buildReceiptFooterWithQr(
+                          shopSettings?.footer != null &&
+                                  shopSettings!.footer!.trim().isNotEmpty
+                              ? shopSettings.footer!.trim()
+                              : 'Thank you for your business!',
+                          PrintService.invoiceQrPayload(invoice),
+                        ),
+                      ),
+                    ),
+                  ),
+                  width: pageFormatWithHeight.availableWidth,
+                  fit: pw.BoxFit.contain,
                 ),
                 pw.SizedBox(height: 4),
               ],
@@ -512,8 +543,11 @@ class ReportService {
 class SalesReport {
   final DateTime startDate;
   final DateTime endDate;
+  /// Sum of invoice amounts excluding GST.
   final double totalSales;
   final double totalGST;
+  /// Sum of invoice totals including GST.
+  final double totalWithGst;
   final int invoiceCount;
   final List<Invoice> invoices;
 
@@ -522,6 +556,7 @@ class SalesReport {
     required this.endDate,
     required this.totalSales,
     required this.totalGST,
+    required this.totalWithGst,
     required this.invoiceCount,
     required this.invoices,
   });

@@ -47,11 +47,14 @@ A comprehensive Android mobile billing application for any type of business, bui
 
 ## Requirements
 
-- Flutter SDK 3.0.0 or higher
+- Flutter SDK 3.0.0 or higher (release APK tested with **Flutter 3.47.4**)
+- **Java 17** for Android builds
 - Android Studio or VS Code with Flutter extensions
 - Android 7.0 (API 24) or higher
 - Camera for barcode scanning
 - Bluetooth 4.0+ for printer connectivity (optional)
+
+Android Gradle versions for the current working copy: **Gradle 8.14**, **AGP 8.11.1**, **Kotlin 2.2.20**. Details are in [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md).
 
 ## Getting Started
 

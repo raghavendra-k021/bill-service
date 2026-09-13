@@ -449,28 +449,29 @@ flutter run
 **Error:** `Unsupported class file major version 65` or `Gradle version is incompatible with Java version`
 
 **Solution:**
-The project has been configured to use Gradle 8.9 which supports Java 8-21. If you still see this error:
-1. Check your Java version: `java -version`
-2. Ensure you're using Java 8-21 (Gradle 8.9 supports up to Java 21)
-3. If using Java 22+, you may need to upgrade to Gradle 8.10+ or use Java 21
-4. Clear Gradle cache if you see version mismatches:
+This project uses **Gradle 8.14** and requires **Java 17** (Flutter 3.47 minimum). Gradle 8.14 supports Java 17–24.
+1. Check your Java version: `java -version` (need 17+)
+2. Point Flutter at a JDK 17+ install if needed: `flutter config --jdk-dir=<path>`
+3. If you see version mismatches, clear the project build:
    ```bash
    flutter clean
    cd android
-   .\gradlew clean
+   ./gradlew --stop
+   ./gradlew clean
    cd ..
    ```
 
-### Issue 6b: Android Gradle Plugin Version Too Old
+### Issue 6b: Android Gradle Plugin / Gradle Too Old
 
-**Error:** `Your project's Android Gradle Plugin version (8.1.0) is lower than Flutter's minimum supported version (8.1.1)`
+**Error:** `Your project's Gradle version (8.11.1) is lower than Flutter's minimum supported version of 8.14.0` or AGP / Kotlin below Flutter’s minimums.
 
 **Solution:**
-The AGP version has been updated to 8.1.4 in:
-- `android/settings.gradle` - Updated plugin version
-- `android/build.gradle` - Updated classpath version
+The working copy is already on:
+- Gradle **8.14** — `android/gradle/wrapper/gradle-wrapper.properties`
+- AGP **8.11.1** — `android/settings.gradle` and `android/build.gradle`
+- Kotlin **2.2.20** — same files
 
-If you see this error again, update both files to use AGP 8.1.4 or higher.
+Do not downgrade to Gradle 8.9 / 8.11.1 or AGP 8.1.x. See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md).
 
 ### Issue 6a: Flutter Doctor Warnings
 
@@ -495,35 +496,11 @@ If you see this error again, update both files to use AGP 8.1.4 or higher.
 
 **Error:** `PKIX path building failed: unable to find valid certification path`
 
-**Solution 1: Manual Gradle Installation (Recommended)**
+**Solution 1: Manual Gradle 8.14 install (recommended)**
 
-**Option A: Use the installation script (Easiest)**
-1. Download Gradle 8.9 manually (supports Java 21):
-   - Visit: https://services.gradle.org/distributions/gradle-8.9-all.zip
-   - Save it to your Downloads folder or Desktop
-2. Run the installation script:
-   ```bash
-   install_gradle_8.9.bat
-   ```
-   The script will automatically find and install Gradle 8.9 to the correct location (hash: `6m0mbzute7p0zdleavqlib88a`).
+Follow **[MANUAL_GRADLE_INSTALL.md](MANUAL_GRADLE_INSTALL.md)**. Download `gradle-8.14-all.zip` and place it in the wrapper dist folder. Do **not** use `install_gradle_8.9.bat` (wrong Gradle version for Flutter 3.47).
 
-**Option B: Manual installation**
-1. Download Gradle 8.9:
-   - Visit: https://services.gradle.org/distributions/gradle-8.9-all.zip
-   - Download and save the zip file
-2. Extract the zip file (you'll see a `gradle-8.9` folder inside)
-3. Find the hash directory (run `flutter run` once to see it in the error, or check `%USERPROFILE%\.gradle\wrapper\dists\gradle-8.9-all\`)
-4. Copy the entire `gradle-8.9` folder contents to the hash directory's `gradle-8.9\` subfolder
-5. Verify: The folder should contain `bin\gradle.bat`
-6. Run: `flutter run`
-
-**Solution 2: Use Helper Script**
-Try the batch script that disables SSL certificate revocation checking:
-```bash
-run_with_ssl_fix.bat
-```
-
-**Solution 3: Set Environment Variables**
+**Solution 2: Set Environment Variables**
 Before running `flutter run`, set:
 ```powershell
 $env:GRADLE_OPTS="-Dcom.sun.net.ssl.checkRevocation=false"
@@ -531,7 +508,7 @@ $env:JAVA_OPTS="-Dcom.sun.net.ssl.checkRevocation=false"
 flutter run
 ```
 
-**Solution 4: Corporate Proxy Configuration**
+**Solution 3: Corporate Proxy Configuration**
 If behind a corporate proxy, configure proxy settings in `android/gradle.properties`:
 ```properties
 systemProp.http.proxyHost=your.proxy.com

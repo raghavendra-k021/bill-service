@@ -541,7 +541,7 @@ lib/
 
 **Default login:** `admin` / `admin123`
 
-**Build release APK:**
+**Build release APK** (Gradle 8.14, AGP 8.11.1, Kotlin 2.2.20, Java 17 — see [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)):
 ```bash
 cd bill-service
 flutter build apk --release

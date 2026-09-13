@@ -4,9 +4,10 @@
 
 ## Prerequisites
 
-1. Install Flutter SDK (3.0.0 or higher)
-2. Install Android Studio or VS Code with Flutter extensions
-3. Set up Android SDK (API 24 or higher)
+1. Install Flutter SDK (3.0.0 or higher; release APK tested with **Flutter 3.47.4**)
+2. Install **Java 17** (required by Flutter’s Android toolchain)
+3. Install Android Studio or VS Code with Flutter extensions
+4. Set up Android SDK (API 24 or higher)
 
 ## Setup Steps
 
@@ -35,7 +36,10 @@ Re-run after schema changes (e.g. shop logo, footer columns).
 
 Already configured in:
 - `android/app/src/main/AndroidManifest.xml` — permissions (camera, Bluetooth, storage)
-- `android/app/build.gradle` — build config
+- `android/app/build.gradle` — minSdk 24, compileSdk/targetSdk 36, signing
+- `android/settings.gradle` / `android/build.gradle` — AGP **8.11.1**, Kotlin **2.2.20**
+- `android/gradle/wrapper/gradle-wrapper.properties` — Gradle **8.14**
+- `android/gradle.properties` — 8G heap (needed for release Jetifier)
 
 ### 4. Run the App
 
@@ -94,9 +98,11 @@ bill-service/lib/
 ### Android Build Issues
 
 1. Check Android SDK in `flutter doctor`
-2. Verify `android/local.properties` → `sdk.dir`
-3. Minimum SDK: 24
+2. Verify `android/local.properties` → `sdk.dir` (do not commit this file)
+3. Minimum SDK: 24; Java 17
+4. If Flutter reports Gradle < 8.14.0 or AGP too old, see [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)
+5. Do not commit APKs or `build/` — they are gitignored
 
 ### Gradle SSL Errors
 
-See **[MANUAL_GRADLE_INSTALL.md](MANUAL_GRADLE_INSTALL.md)**
+See **[MANUAL_GRADLE_INSTALL.md](MANUAL_GRADLE_INSTALL.md)** (Gradle **8.14**, not 8.9 / 8.11.1)

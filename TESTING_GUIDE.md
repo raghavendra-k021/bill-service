@@ -6,8 +6,9 @@ See **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** for the full featur
 
 ## Prerequisites
 
-1. **Flutter SDK** (3.0.0 or higher)
+1. **Flutter SDK** (3.0.0 or higher; APK tested with Flutter 3.47.4)
    - Verify: `flutter --version`
+   - Java **17** for Android builds (`java -version`)
    - If not installed: https://flutter.dev/docs/get-started/install
 
 2. **Android Studio** or **VS Code** with Flutter extensions
@@ -43,7 +44,7 @@ flutter pub get
 This is **required** before running the app. Drift database needs code generation:
 
 ```bash
-flutter pub run build_runner build --delete-conflicting-outputs
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 **Expected Output:**
@@ -409,7 +410,7 @@ flutter pub get
 # Remove all *.g.dart files in lib/database/
 
 # Regenerate
-flutter pub run build_runner build --delete-conflicting-outputs
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ### Issue 2: App Won't Compile

@@ -7,7 +7,7 @@
 ### 1. Project Setup ✅
 - Flutter project in `bill-service/`
 - Dependencies in `pubspec.yaml`
-- Android manifest, Gradle, permissions (camera, Bluetooth, storage)
+- Android manifest, Gradle **8.14**, AGP **8.11.1**, Kotlin **2.2.20**, permissions (camera, Bluetooth, storage)
 - Documentation set (README, ARCHITECTURE, PRINTING_GUIDE, testing, setup, build guides)
 
 ### 2. Database Layer ✅

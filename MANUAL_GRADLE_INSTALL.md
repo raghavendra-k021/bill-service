@@ -2,75 +2,92 @@
 
 **Project folder:** `bill-service`
 
-If `flutter run` fails with **SSL certificate error** when downloading Gradle (e.g. "PKIX path building failed"), you can download Gradle manually and place it so the build uses it without going over HTTPS.
+If `flutter run` or `flutter build apk` fails with an **SSL certificate error** when downloading Gradle (e.g. `PKIX path building failed`), download Gradle in a browser or with `curl` and place the zip where the wrapper expects it. The wrapper then uses the local file instead of HTTPS.
+
+This project uses **Gradle 8.14** (`gradle-8.14-all.zip`). Older zips (`8.9`, `8.11.1`) will not satisfy Flutter 3.47.
 
 ---
 
-## Step 1: Create the target folder (so you know where to put the zip)
+## Step 1: Create the target folder
 
-Run this **once** from the project folder (it will fail with SSL – that’s expected):
+Run this **once** from the project folder (it may fail with SSL — that is expected). Gradle creates the dist folder and hash directory:
 
-```powershell
-cd C:\Users\raghak\workspace_raghak\bill-service
-flutter run
+```bash
+cd bill-service
+flutter build apk --release
 ```
 
-When it fails, Gradle will have created a folder under your user profile. You need that path.
-
-**Or** open this folder in File Explorer:
+**Windows (File Explorer / PowerShell):**
 
 ```
-%USERPROFILE%\.gradle\wrapper\dists\gradle-8.11.1-all
+%USERPROFILE%\.gradle\wrapper\dists\gradle-8.14-all
 ```
 
-- Full path example: `C:\Users\raghak\.gradle\wrapper\dists\gradle-8.11.1-all`
-- Inside it there will be **one folder** with a long name (a hash, e.g. `a1b2c3d4e5f6...`).  
-  If you already ran `flutter run` and it failed, that hash folder was created.  
-  If the folder `gradle-8.11.1-all` is empty or missing, run `flutter run` once so it gets created (then ignore the SSL error).
+Example: `C:\Users\raghak\.gradle\wrapper\dists\gradle-8.14-all`
+
+**WSL / Linux:**
+
+```
+~/.gradle/wrapper/dists/gradle-8.14-all
+```
+
+Inside it there will be **one folder** with a compact hash name. For this wrapper URL the hash is:
+
+```
+c2qonpi39x1mddn7hk5gh9iqj
+```
+
+If that folder is missing, run a Flutter Android build once so it is created, then ignore the SSL error.
 
 ---
 
-## Step 2: Download Gradle manually
+## Step 2: Download Gradle 8.14
 
-1. In your **browser** (Chrome, Edge, etc.), open:
-   ```
-   https://services.gradle.org/distributions/gradle-8.11.1-all.zip
-   ```
-2. Download the file (e.g. “Save as”).
-3. Remember where you saved it (e.g. `Downloads\gradle-8.11.1-all.zip`).  
-   The file **must** be named **`gradle-8.11.1-all.zip`**.
+**Browser:** open
 
----
-
-## Step 3: Place the zip in the Gradle wrapper folder
-
-1. Go to:
-   ```
-   %USERPROFILE%\.gradle\wrapper\dists\gradle-8.11.1-all
-   ```
-   (e.g. `C:\Users\raghak\.gradle\wrapper\dists\gradle-8.11.1-all`)
-
-2. Open the **only subfolder** inside it (the one with the long hash name).
-
-3. **Copy** your downloaded **`gradle-8.11.1-all.zip`** into that hash folder.  
-   Do **not** rename it. Do **not** unzip it.  
-   Final path should look like:
-   ```
-   C:\Users\raghak\.gradle\wrapper\dists\gradle-8.11.1-all\<hash>\gradle-8.11.1-all.zip
-   ```
-
----
-
-## Step 4: Run the app again
-
-From the project folder:
-
-```powershell
-cd C:\Users\raghak\workspace_raghak\bill-service
-flutter run
+```
+https://services.gradle.org/distributions/gradle-8.14-all.zip
 ```
 
-Gradle will use the local zip and will not try to download it over HTTPS, so the SSL error should be gone.
+Save it as **`gradle-8.14-all.zip`** (do not rename).
+
+**WSL / Linux (`curl`):**
+
+```bash
+DEST="$HOME/.gradle/wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj"
+mkdir -p "$DEST"
+curl -L --fail -o "$DEST/gradle-8.14-all.zip" \
+  "https://services.gradle.org/distributions/gradle-8.14-all.zip"
+```
+
+---
+
+## Step 3: Place the zip (if you used a browser)
+
+1. Open the `gradle-8.14-all` dist folder (Windows or WSL path above).
+2. Open the hash subfolder (`c2qonpi39x1mddn7hk5gh9iqj`, or the most recently modified hash folder).
+3. Copy **`gradle-8.14-all.zip`** into that folder. **Do not unzip it.**
+
+Final path examples:
+
+```
+C:\Users\raghak\.gradle\wrapper\dists\gradle-8.14-all\c2qonpi39x1mddn7hk5gh9iqj\gradle-8.14-all.zip
+```
+
+```
+~/.gradle/wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip
+```
+
+---
+
+## Step 4: Build again
+
+```bash
+cd bill-service
+flutter build apk --release
+```
+
+Gradle extracts the local zip and should not download the distribution over HTTPS.
 
 ---
 
@@ -78,19 +95,16 @@ Gradle will use the local zip and will not try to download it over HTTPS, so the
 
 | Item | Value |
 |------|--------|
-| Download URL | https://services.gradle.org/distributions/gradle-8.11.1-all.zip |
-| File name | `gradle-8.11.1-all.zip` (keep this name) |
-| Place in | `%USERPROFILE%\.gradle\wrapper\dists\gradle-8.11.1-all\<hash>\` |
-| Full path example | `C:\Users\raghak\.gradle\wrapper\dists\gradle-8.11.1-all\<hash>\gradle-8.11.1-all.zip` |
+| Wrapper URL | https://services.gradle.org/distributions/gradle-8.14-all.zip |
+| File name | `gradle-8.14-all.zip` (keep this name) |
+| Hash folder | `c2qonpi39x1mddn7hk5gh9iqj` |
+| Windows | `%USERPROFILE%\.gradle\wrapper\dists\gradle-8.14-all\<hash>\` |
+| WSL / Linux | `~/.gradle/wrapper/dists/gradle-8.14-all/<hash>/` |
 
 ---
 
-## If the hash folder doesn’t exist yet
-
-1. Run `flutter run` once and wait for the SSL error (Gradle will create the folder).
-2. Then open `%USERPROFILE%\.gradle\wrapper\dists\gradle-8.11.1-all\` and you should see one folder (the hash). Put the zip inside that folder.
-3. Run `flutter run` again.
-
 ## If you have multiple hash folders
 
-Use the **most recently modified** one (that’s from the last run). Put `gradle-8.11.1-all.zip` in that folder.
+Use the **most recently modified** one from the last Flutter/Gradle run. Put `gradle-8.14-all.zip` in that folder.
+
+Do **not** use `install_gradle_8.9.bat` — it installs Gradle 8.9, which Flutter 3.47 rejects (minimum is **8.14.0**).

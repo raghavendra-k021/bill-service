@@ -8,13 +8,28 @@ This guide explains how to create a **release** build of the Billing Service And
 
 ## Prerequisites
 
-1. **Flutter SDK** installed and `flutter doctor` passing
-2. **Android SDK** (API 24+) and Android toolchain
-3. **Code generation** already run:
+1. **Flutter SDK** installed and `flutter doctor` passing (tested with **Flutter 3.47.4** / Dart 3.13)
+2. **Java 17** (or newer that Flutter selects) — `java -version`
+3. **Android SDK** (API 24+) and Android toolchain
+4. **Code generation** already run:
    ```bash
    flutter pub get
-   flutter pub run build_runner build --delete-conflicting-outputs
+   dart run build_runner build --delete-conflicting-outputs
    ```
+
+### Android build toolchain (current working copy)
+
+These versions are what a successful `flutter build apk --release` used with Flutter 3.47. They live in Git; the APK itself does not.
+
+| Tool | Version | Where it is set |
+|------|---------|-----------------|
+| Gradle | **8.14** | `android/gradle/wrapper/gradle-wrapper.properties` |
+| Android Gradle Plugin | **8.11.1** | `android/settings.gradle`, `android/build.gradle` |
+| Kotlin | **2.2.20** | same two files (`ext.kotlin_version` / plugin id) |
+| Gradle JVM heap | **8G** | `android/gradle.properties` (`org.gradle.jvmargs`) |
+| minSdk / compileSdk / targetSdk | 24 / 36 / 36 | `android/app/build.gradle` |
+
+Do **not** commit `*.apk`, `build/`, `.dart_tool/`, `android/.gradle/`, `android/local.properties`, or keystores. See `.gitignore`.
 
 ---
 
@@ -166,7 +181,9 @@ After changing, run the build again.
 ## Troubleshooting
 
 - **"key.properties not found" or signing errors:** Ensure `key.properties` exists in the project root and paths/passwords are correct. Use double backslashes in Windows paths in `key.properties` (e.g. `c:\\keys\\app.jks`).
-- **"Minimum supported Gradle" / build errors:** Ensure Android SDK and Gradle versions match what Flutter expects; run `flutter doctor -v`.
+- **"Gradle version is lower than Flutter's minimum supported version of 8.14.0":** The wrapper must be Gradle **8.14** (see the toolchain table). Older 8.9 / 8.11.1 wrappers fail on Flutter 3.47.
+- **"Java heap space" / JetifyTransform OOM:** `android/gradle.properties` must give Gradle enough memory (`-Xmx8G`). Stop daemons after changing it: `cd android && ./gradlew --stop`.
+- **SSL / `PKIX path building failed` while downloading Gradle:** See **[MANUAL_GRADLE_INSTALL.md](MANUAL_GRADLE_INSTALL.md)**.
 - **Install blocked on device:** Enable "Install from unknown sources" (or "Install unknown apps") for the app used to open the APK.
 
 ---

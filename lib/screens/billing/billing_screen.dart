@@ -291,7 +291,17 @@ class _BillingScreenState extends State<BillingScreen> {
 
   Widget _productSearch({VoidCallback? onPopAfterSelect}) {
     return ProductSearchWidget(
-      onProductSelected: (product) async {
+      onProductSelected: (product, {scannedUnitPrice, scannedDiscountPercent}) async {
+        if (scannedUnitPrice != null) {
+          _addToCart(
+            product,
+            quantity: 1,
+            unitPrice: scannedUnitPrice,
+            discountPercent: scannedDiscountPercent ?? product.defaultDiscountPercent,
+          );
+          onPopAfterSelect?.call();
+          return;
+        }
         await _showAddToCartDialog(product);
         onPopAfterSelect?.call();
       },

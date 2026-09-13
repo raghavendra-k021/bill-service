@@ -3070,6 +3070,15 @@ class $ShopSettingsTable extends ShopSettings
           GeneratedColumn.checkTextLength(minTextLength: 1, maxTextLength: 200),
       type: DriftSqlType.string,
       requiredDuringInsert: true);
+  static const VerificationMeta _shopCodeMeta =
+      const VerificationMeta('shopCode');
+  @override
+  late final GeneratedColumn<String> shopCode = GeneratedColumn<String>(
+      'shop_code', aliasedName, true,
+      additionalChecks:
+          GeneratedColumn.checkTextLength(minTextLength: 2, maxTextLength: 8),
+      type: DriftSqlType.string,
+      requiredDuringInsert: false);
   static const VerificationMeta _addressMeta =
       const VerificationMeta('address');
   @override
@@ -3115,8 +3124,18 @@ class $ShopSettingsTable extends ShopSettings
       'footer', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, shopName, address, phone, email, gstin, stateCode, logoPath, footer];
+  List<GeneratedColumn> get $columns => [
+        id,
+        shopName,
+        shopCode,
+        address,
+        phone,
+        email,
+        gstin,
+        stateCode,
+        logoPath,
+        footer
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3135,6 +3154,10 @@ class $ShopSettingsTable extends ShopSettings
           shopName.isAcceptableOrUnknown(data['shop_name']!, _shopNameMeta));
     } else if (isInserting) {
       context.missing(_shopNameMeta);
+    }
+    if (data.containsKey('shop_code')) {
+      context.handle(_shopCodeMeta,
+          shopCode.isAcceptableOrUnknown(data['shop_code']!, _shopCodeMeta));
     }
     if (data.containsKey('address')) {
       context.handle(_addressMeta,
@@ -3177,6 +3200,8 @@ class $ShopSettingsTable extends ShopSettings
           .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
       shopName: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}shop_name'])!,
+      shopCode: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}shop_code']),
       address: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}address']),
       phone: attachedDatabase.typeMapping
@@ -3203,6 +3228,9 @@ class $ShopSettingsTable extends ShopSettings
 class ShopSetting extends DataClass implements Insertable<ShopSetting> {
   final int id;
   final String shopName;
+
+  /// Short code on labels and signed QR (e.g. SRT).
+  final String? shopCode;
   final String? address;
   final String? phone;
   final String? email;
@@ -3213,6 +3241,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
   const ShopSetting(
       {required this.id,
       required this.shopName,
+      this.shopCode,
       this.address,
       this.phone,
       this.email,
@@ -3225,6 +3254,9 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['shop_name'] = Variable<String>(shopName);
+    if (!nullToAbsent || shopCode != null) {
+      map['shop_code'] = Variable<String>(shopCode);
+    }
     if (!nullToAbsent || address != null) {
       map['address'] = Variable<String>(address);
     }
@@ -3253,6 +3285,9 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     return ShopSettingsCompanion(
       id: Value(id),
       shopName: Value(shopName),
+      shopCode: shopCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(shopCode),
       address: address == null && nullToAbsent
           ? const Value.absent()
           : Value(address),
@@ -3279,6 +3314,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     return ShopSetting(
       id: serializer.fromJson<int>(json['id']),
       shopName: serializer.fromJson<String>(json['shopName']),
+      shopCode: serializer.fromJson<String?>(json['shopCode']),
       address: serializer.fromJson<String?>(json['address']),
       phone: serializer.fromJson<String?>(json['phone']),
       email: serializer.fromJson<String?>(json['email']),
@@ -3294,6 +3330,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'shopName': serializer.toJson<String>(shopName),
+      'shopCode': serializer.toJson<String?>(shopCode),
       'address': serializer.toJson<String?>(address),
       'phone': serializer.toJson<String?>(phone),
       'email': serializer.toJson<String?>(email),
@@ -3307,6 +3344,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
   ShopSetting copyWith(
           {int? id,
           String? shopName,
+          Value<String?> shopCode = const Value.absent(),
           Value<String?> address = const Value.absent(),
           Value<String?> phone = const Value.absent(),
           Value<String?> email = const Value.absent(),
@@ -3317,6 +3355,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
       ShopSetting(
         id: id ?? this.id,
         shopName: shopName ?? this.shopName,
+        shopCode: shopCode.present ? shopCode.value : this.shopCode,
         address: address.present ? address.value : this.address,
         phone: phone.present ? phone.value : this.phone,
         email: email.present ? email.value : this.email,
@@ -3329,6 +3368,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     return ShopSetting(
       id: data.id.present ? data.id.value : this.id,
       shopName: data.shopName.present ? data.shopName.value : this.shopName,
+      shopCode: data.shopCode.present ? data.shopCode.value : this.shopCode,
       address: data.address.present ? data.address.value : this.address,
       phone: data.phone.present ? data.phone.value : this.phone,
       email: data.email.present ? data.email.value : this.email,
@@ -3344,6 +3384,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
     return (StringBuffer('ShopSetting(')
           ..write('id: $id, ')
           ..write('shopName: $shopName, ')
+          ..write('shopCode: $shopCode, ')
           ..write('address: $address, ')
           ..write('phone: $phone, ')
           ..write('email: $email, ')
@@ -3356,14 +3397,15 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      id, shopName, address, phone, email, gstin, stateCode, logoPath, footer);
+  int get hashCode => Object.hash(id, shopName, shopCode, address, phone, email,
+      gstin, stateCode, logoPath, footer);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ShopSetting &&
           other.id == this.id &&
           other.shopName == this.shopName &&
+          other.shopCode == this.shopCode &&
           other.address == this.address &&
           other.phone == this.phone &&
           other.email == this.email &&
@@ -3376,6 +3418,7 @@ class ShopSetting extends DataClass implements Insertable<ShopSetting> {
 class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
   final Value<int> id;
   final Value<String> shopName;
+  final Value<String?> shopCode;
   final Value<String?> address;
   final Value<String?> phone;
   final Value<String?> email;
@@ -3386,6 +3429,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
   const ShopSettingsCompanion({
     this.id = const Value.absent(),
     this.shopName = const Value.absent(),
+    this.shopCode = const Value.absent(),
     this.address = const Value.absent(),
     this.phone = const Value.absent(),
     this.email = const Value.absent(),
@@ -3397,6 +3441,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
   ShopSettingsCompanion.insert({
     this.id = const Value.absent(),
     required String shopName,
+    this.shopCode = const Value.absent(),
     this.address = const Value.absent(),
     this.phone = const Value.absent(),
     this.email = const Value.absent(),
@@ -3408,6 +3453,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
   static Insertable<ShopSetting> custom({
     Expression<int>? id,
     Expression<String>? shopName,
+    Expression<String>? shopCode,
     Expression<String>? address,
     Expression<String>? phone,
     Expression<String>? email,
@@ -3419,6 +3465,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (shopName != null) 'shop_name': shopName,
+      if (shopCode != null) 'shop_code': shopCode,
       if (address != null) 'address': address,
       if (phone != null) 'phone': phone,
       if (email != null) 'email': email,
@@ -3432,6 +3479,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
   ShopSettingsCompanion copyWith(
       {Value<int>? id,
       Value<String>? shopName,
+      Value<String?>? shopCode,
       Value<String?>? address,
       Value<String?>? phone,
       Value<String?>? email,
@@ -3442,6 +3490,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
     return ShopSettingsCompanion(
       id: id ?? this.id,
       shopName: shopName ?? this.shopName,
+      shopCode: shopCode ?? this.shopCode,
       address: address ?? this.address,
       phone: phone ?? this.phone,
       email: email ?? this.email,
@@ -3460,6 +3509,9 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
     }
     if (shopName.present) {
       map['shop_name'] = Variable<String>(shopName.value);
+    }
+    if (shopCode.present) {
+      map['shop_code'] = Variable<String>(shopCode.value);
     }
     if (address.present) {
       map['address'] = Variable<String>(address.value);
@@ -3490,6 +3542,7 @@ class ShopSettingsCompanion extends UpdateCompanion<ShopSetting> {
     return (StringBuffer('ShopSettingsCompanion(')
           ..write('id: $id, ')
           ..write('shopName: $shopName, ')
+          ..write('shopCode: $shopCode, ')
           ..write('address: $address, ')
           ..write('phone: $phone, ')
           ..write('email: $email, ')
@@ -6193,6 +6246,7 @@ typedef $$ShopSettingsTableCreateCompanionBuilder = ShopSettingsCompanion
     Function({
   Value<int> id,
   required String shopName,
+  Value<String?> shopCode,
   Value<String?> address,
   Value<String?> phone,
   Value<String?> email,
@@ -6205,6 +6259,7 @@ typedef $$ShopSettingsTableUpdateCompanionBuilder = ShopSettingsCompanion
     Function({
   Value<int> id,
   Value<String> shopName,
+  Value<String?> shopCode,
   Value<String?> address,
   Value<String?> phone,
   Value<String?> email,
@@ -6228,6 +6283,9 @@ class $$ShopSettingsTableFilterComposer
 
   ColumnFilters<String> get shopName => $composableBuilder(
       column: $table.shopName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get shopCode => $composableBuilder(
+      column: $table.shopCode, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get address => $composableBuilder(
       column: $table.address, builder: (column) => ColumnFilters(column));
@@ -6266,6 +6324,9 @@ class $$ShopSettingsTableOrderingComposer
   ColumnOrderings<String> get shopName => $composableBuilder(
       column: $table.shopName, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get shopCode => $composableBuilder(
+      column: $table.shopCode, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get address => $composableBuilder(
       column: $table.address, builder: (column) => ColumnOrderings(column));
 
@@ -6302,6 +6363,9 @@ class $$ShopSettingsTableAnnotationComposer
 
   GeneratedColumn<String> get shopName =>
       $composableBuilder(column: $table.shopName, builder: (column) => column);
+
+  GeneratedColumn<String> get shopCode =>
+      $composableBuilder(column: $table.shopCode, builder: (column) => column);
 
   GeneratedColumn<String> get address =>
       $composableBuilder(column: $table.address, builder: (column) => column);
@@ -6353,6 +6417,7 @@ class $$ShopSettingsTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> shopName = const Value.absent(),
+            Value<String?> shopCode = const Value.absent(),
             Value<String?> address = const Value.absent(),
             Value<String?> phone = const Value.absent(),
             Value<String?> email = const Value.absent(),
@@ -6364,6 +6429,7 @@ class $$ShopSettingsTableTableManager extends RootTableManager<
               ShopSettingsCompanion(
             id: id,
             shopName: shopName,
+            shopCode: shopCode,
             address: address,
             phone: phone,
             email: email,
@@ -6375,6 +6441,7 @@ class $$ShopSettingsTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             required String shopName,
+            Value<String?> shopCode = const Value.absent(),
             Value<String?> address = const Value.absent(),
             Value<String?> phone = const Value.absent(),
             Value<String?> email = const Value.absent(),
@@ -6386,6 +6453,7 @@ class $$ShopSettingsTableTableManager extends RootTableManager<
               ShopSettingsCompanion.insert(
             id: id,
             shopName: shopName,
+            shopCode: shopCode,
             address: address,
             phone: phone,
             email: email,

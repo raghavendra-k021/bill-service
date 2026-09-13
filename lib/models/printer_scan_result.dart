@@ -1,12 +1,16 @@
 import 'printer_device.dart';
 
 class PrinterScanResult {
+  final PrinterDevice? connectedReceipt;
+  final PrinterDevice? connectedLabel;
   final PrinterDevice? connectedInApp;
   final List<PrinterDevice> pairedSpp;
   final List<PrinterDevice> pairedBle;
   final List<PrinterDevice> discovered;
 
   const PrinterScanResult({
+    this.connectedReceipt,
+    this.connectedLabel,
     this.connectedInApp,
     this.pairedSpp = const [],
     this.pairedBle = const [],
@@ -16,7 +20,8 @@ class PrinterScanResult {
   List<PrinterDevice> get allDevices {
     final devices = <PrinterDevice>[];
     for (final device in [
-      if (connectedInApp != null) connectedInApp!,
+      if (connectedReceipt != null) connectedReceipt!,
+      if (connectedLabel != null) connectedLabel!,
       ...pairedSpp,
       ...pairedBle,
       ...discovered,

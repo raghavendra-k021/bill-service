@@ -1,5 +1,8 @@
 enum PrinterConnectionType { spp, ble }
 
+/// Receipt (80 mm) vs barcode label (58 mm / 50×30 mm).
+enum PrinterRole { receipt, label }
+
 class PrinterDevice {
   final String name;
   final String address;

@@ -8,12 +8,14 @@
 - Flutter project in `bill-service/`
 - Dependencies in `pubspec.yaml`
 - Android manifest, Gradle, permissions (camera, Bluetooth, storage)
-- Documentation set (README, testing, setup, build guides)
+- Documentation set (README, ARCHITECTURE, PRINTING_GUIDE, testing, setup, build guides)
 
 ### 2. Database Layer ✅
 - Tables: users, products, customers, invoices, invoice_items, stock_history, categories, shop_settings
 - DAOs for all entities; default admin user on first run
-- Shop settings: logo path, **footer**, optional phone
+- Shop settings: logo path, **footer**, **shop_code**, optional phone
+
+**Schema version:** 5
 
 **Run before first build:**
 ```bash
@@ -24,32 +26,34 @@ dart run build_runner build --delete-conflicting-outputs
 | Service | Capabilities |
 |---------|----------------|
 | **AuthService** | Login, password hash, biometric |
-| **GSTCalculator** | Per-product GST %; GST after discount; CGST/SGST/IGST |
-| **BillingService** | Invoice creation, stock deduction |
+| **GSTCalculator** | Per-product GST %; GST after discount; **PriceUtils rounding** |
+| **BillingService** | Invoice creation, stock deduction, rounded totals |
 | **InventoryService** | CRUD, search, **getProductByBarcode**, **createProductFromBilling** |
 | **ReportService** | Sales/GST reports, invoice PDF, Excel export |
-| **PrintService** | SPP + BLE thermal print, receipt layout, **bitmap barcodes**, **invoice QR footer** |
+| **PrintService** | Dual BT slots, receipt 80 mm, **2×1.5 in CODE128 labels**, **invoice QR footer** |
 | **BackupService** | Encrypted Google Drive backup |
 
 ### 4. Billing (POS) ✅
-- Product search (**starts with**), browse all, camera barcode scan
-- **Scan fixes:** single detection (no double pop); auto lookup & add to cart
+- Product search (**starts with**), browse all, camera **CODE128** scan
+- **Scan label barcode** → `getProductByBarcode` → add to cart
 - **Add to cart dialog:** quantity, **editable price**, **discount %**
 - **Edit cart:** tap price line in cart
-- **New item flow:** not in inventory → dialog (name, barcode, unit, qty, price, discount, **GST default 5%**) → **saved to inventory + cart**
-- App bar: scan, **add new item (+)** 
+- **New item flow:** not in inventory → dialog → **saved to inventory + cart**
 - Customer, payment mode, bill summary, save & optional auto-print
+- **Whole-rupee rounding** on all line totals and bill total
 
-### 5. Inventory & Barcodes ✅
-- Product form (barcode, prices, GST %, stock, units)
-- **BarcodeScreen:** preview, Share PDF, Print
-- **Thermal barcode labels:** rendered as **bitmap** (same as screen) — correct encoding for numeric barcodes (e.g. `101000`)
+### 5. Inventory & Labels ✅
+- Product form (barcode, prices, GST %, default discount %, stock, units)
+- **BarcodeScreen:** label preview (2"×1.5"), Share PDF, Print with **copy count (1–999)**
+- **Thermal labels:** CODE128 bitmap — MRP, -10%, SRT PRICE, tax line, barcode, product name
+- **LabelQrCodec:** shop code resolve + `netPriceFrom` (signed QR build/parse retained but not used for labels/billing)
 - Low stock alerts (min stock default **0**)
 
 ### 6. Bills & Printing ✅
 - Bills list (amount **excl. GST**), date filter, detail view
 - Invoice PDF: dynamic page height, logo header, item lines, TOTAL DISCOUNT, Gross Total, GST, payment
-- **Footer:** custom text **left-aligned**; **QR code right** (`INV:…|AMT:…|DT:…`)
+- **Footer:** custom text **left-aligned**; **QR code right** (`INV:…|SC:…|AMT:…|DT:…`)
+- Invoice QR uses **imageRaster** (GS v 0) for reliable phone scanning
 - Thermal receipt matches PDF layout (shared header bitmap, formatting)
 - Bill detail: PDF share, print button
 
@@ -57,11 +61,11 @@ dart run build_runner build --delete-conflicting-outputs
 - **Sales report cards:** Total Sales (excl. GST), Total GST, Total (incl. GST), invoice count, average (excl. GST)
 - **Excel:** Subtotal (excl. GST), GST, Total columns
 - GST report, analytics chart
-- Dashboard today’s sales uses total **incl. GST** (cash collected)
+- Dashboard today's sales uses total **incl. GST** (cash collected)
 
 ### 8. Settings ✅
-- Shop summary + **Edit Shop Details** screen (logo picker, address, **phone optional**, email, GSTIN, state, footer)
-- Bluetooth printer scan/connect/test/disconnect (SPP primary)
+- Shop summary + **Edit Shop Details** screen (logo picker, address, **shop code**, **phone optional**, email, GSTIN, state, footer)
+- **Dual Bluetooth printers:** receipt 80 mm + label **2"×1.5"** — separate scan/connect/test/disconnect
 - Google Drive backup, user management (admin)
 
 ### 9. Receipt / Label Formatting ✅
@@ -70,19 +74,22 @@ dart run build_runner build --delete-conflicting-outputs
 - **TOTAL DISCOUNT** (bold, centered)
 - Gross Total (large); Total Items line; CGST/SGST/Total GST breakdown
 - Full-width horizontal rules
+- **Label:** trim top whitespace, 252-dot pitch, gap-sensor multi-copy (`GS V 1`)
+- **Prices:** round to whole rupees, display with `.00`
 
-## 📋 Feature Checklist (Recent)
+## 📋 Feature Checklist (Current)
 
+- [x] Dual printers (receipt 80 mm + label Posiflow P58D 2"×1.5")
+- [x] CODE128 product labels (not signed QR on label)
+- [x] Billing scan reads label CODE128 barcode
+- [x] Shop code on label price line + invoice QR (`SC:` field)
+- [x] Label print copy count (1–999) with gap-sensor alignment
+- [x] MRP left / -10% right / SRT PRICE bold same size
+- [x] Whole-rupee rounding everywhere with `.00` display
+- [x] Invoice QR scannable (imageRaster + quiet zone)
 - [x] Sales report GST split (excl / GST / incl)
-- [x] Excel subtotal without GST
-- [x] Barcode scan stay on billing + auto-add
-- [x] Barcode thermal print bitmap (fix `101000` → wrong `444444` / `494849484848`)
 - [x] Editable price/discount when adding to cart
-- [x] Edit cart item (price line)
 - [x] Add unknown product to inventory from billing
-- [x] GST default 5% on quick-add (editable; no auto 12% by price)
-- [x] Shop phone optional
-- [x] Invoice QR next to footer (footer left, QR right)
 - [x] Shop details edit screen + collapsed settings card
 
 ## ⚠️ Important Notes
@@ -96,38 +103,27 @@ dart run build_runner build --delete-conflicting-outputs
 - Internet (backup — optional)
 
 ### Printer Notes
-- Prefer **SPP** pairing for ESC/POS thermal printers (e.g. CN811)
-- Barcode **labels** print as image; receipt **QR** prints as image next to footer
+- **Receipt printer (80 mm):** bills only — prefer **SPP** (e.g. CN811)
+- **Label printer (Posiflow P58D):** **2" × 1.5"** gap labels only
+- Both can stay connected; prefs: `receipt_printer_*` and `label_printer_*`
+- **Reprint labels** after changing shop code so price line prefix matches
+- See [PRINTING_GUIDE.md](PRINTING_GUIDE.md) for gap sensor and troubleshooting
 
 ## 🔄 Optional Future Enhancements
 
 1. Category management UI
 2. Bulk product import (Excel/CSV)
 3. Full user management UI
-4. Scan invoice QR to open bill detail
+4. Scan invoice QR to open bill detail in app
 5. Multi-device sync
 
 ## 📱 Testing Checklist
 
-- [ ] Code generation (`build_runner`)
-- [ ] Login, add products, print barcode label — **scan printed label** matches inventory barcode
-- [ ] Billing: edit price, add new item, save bill
-- [ ] Receipt/PDF: footer left, QR right, scan QR payload
-- [ ] Sales report totals and Excel subtotal (excl. GST)
-- [ ] Shop details: save without phone; logo on receipt
-- [ ] Bluetooth receipt + barcode label print
+- [ ] Login, add products, print label — **scan barcode at billing** adds item
+- [ ] Dual printers: receipt test on CN811, label test on P58D
+- [ ] Print 2+ labels — each copy identical full layout
+- [ ] Save bill — receipt QR scans with `INV|SC|AMT|DT`
+- [ ] Amounts round to whole rupees with `.00`
+- [ ] Change shop code → reprint label → invoice QR shows new `SC:`
 
-## 🚀 Deployment
-
-```bash
-cd bill-service
-flutter build apk --release
-```
-
-Output: `build/app/outputs/flutter-apk/app-release.apk`
-
-See **[BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)** for signed builds and Play Store AAB.
-
----
-
-**Status:** Core features complete. Working copy: **`bill-service`**.
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed test cases.

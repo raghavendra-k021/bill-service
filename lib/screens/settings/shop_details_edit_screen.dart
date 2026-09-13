@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../database/app_database.dart';
+import '../../utils/label_qr_codec.dart';
 import '../../utils/validators.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -24,6 +26,7 @@ class ShopDetailsEditScreen extends StatefulWidget {
 class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _shopNameController = TextEditingController();
+  final _shopCodeController = TextEditingController();
   final _addressController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
@@ -45,9 +48,18 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
       final settings = await widget.database
           .select(widget.database.shopSettings)
           .getSingleOrNull();
-      if (!mounted || settings == null) return;
+      if (!mounted || settings == null) {
+        if (mounted) {
+          _shopCodeController.text = LabelQrCodec.defaultShopCode;
+        }
+        return;
+      }
       setState(() {
         _shopNameController.text = settings.shopName;
+        _shopCodeController.text =
+            settings.shopCode?.trim().isNotEmpty == true
+                ? settings.shopCode!.trim().toUpperCase()
+                : LabelQrCodec.defaultShopCode;
         _addressController.text = settings.address ?? '';
         _phoneController.text = settings.phone ?? '';
         _emailController.text = settings.email ?? '';
@@ -93,6 +105,7 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
 
     setState(() => _isSaving = true);
     try {
+      final shopCode = _shopCodeController.text.trim().toUpperCase();
       final existing = await widget.database
           .select(widget.database.shopSettings)
           .getSingleOrNull();
@@ -102,6 +115,7 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
               ShopSettingsCompanion(
                 id: drift.Value(existing.id),
                 shopName: drift.Value(_shopNameController.text.trim()),
+                shopCode: drift.Value(shopCode),
                 address: drift.Value(_addressController.text.trim().isEmpty
                     ? null
                     : _addressController.text.trim()),
@@ -127,6 +141,7 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
         await widget.database.into(widget.database.shopSettings).insert(
               ShopSettingsCompanion.insert(
                 shopName: _shopNameController.text.trim(),
+                shopCode: drift.Value(shopCode),
                 address: drift.Value(_addressController.text.trim().isEmpty
                     ? null
                     : _addressController.text.trim()),
@@ -149,6 +164,8 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
               ),
             );
       }
+
+      await LabelQrCodec.clearLegacyShopCodePref();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -243,6 +260,28 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
               ),
               const SizedBox(height: 16),
               CustomTextField(
+                label: 'Shop Code (label QR)',
+                controller: _shopCodeController,
+                hint: 'e.g. SRT',
+                maxLength: 8,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                  TextInputFormatter.withFunction(
+                    (oldValue, newValue) => TextEditingValue(
+                      text: newValue.text.toUpperCase(),
+                      selection: newValue.selection,
+                    ),
+                  ),
+                ],
+                validator: Validators.validateShopCode,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Printed on labels and embedded in signed QR for billing scan.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
                 label: 'Address',
                 controller: _addressController,
                 maxLines: 3,
@@ -297,6 +336,7 @@ class _ShopDetailsEditScreenState extends State<ShopDetailsEditScreen> {
   @override
   void dispose() {
     _shopNameController.dispose();
+    _shopCodeController.dispose();
     _addressController.dispose();
     _phoneController.dispose();
     _emailController.dispose();

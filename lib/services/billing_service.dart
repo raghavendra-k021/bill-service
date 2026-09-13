@@ -2,6 +2,7 @@ import '../database/app_database.dart';
 import '../models/invoice.dart';
 import '../services/gst_calculator.dart';
 import '../utils/constants.dart';
+import '../utils/price_utils.dart';
 import 'package:drift/drift.dart';
 
 class BillingService {
@@ -57,10 +58,12 @@ class BillingService {
     // All line totals are GST-inclusive. Invoice discount is off that total.
     final invoiceSummary = GSTCalculator.calculateInvoiceGST(itemCalculations);
     final finalSubtotal = invoiceSummary.totalAmount; // sum of inclusive line totals
-    final invoiceDiscountAmount =
-        finalSubtotal * (invoiceDiscountPercent / 100);
-    final finalTotal = finalSubtotal - invoiceDiscountAmount; // no GST added on top
-    final finalGST = invoiceSummary.gstAmount; // embedded GST for breakdown only
+    final invoiceDiscountAmount = PriceUtils.roundRupee(
+      finalSubtotal * (invoiceDiscountPercent / 100),
+    );
+    final finalTotal =
+        PriceUtils.roundRupee(finalSubtotal - invoiceDiscountAmount);
+    final finalGST = PriceUtils.roundRupee(invoiceSummary.gstAmount);
 
     // Create invoice
     final invoiceId = await invoiceDao.insertInvoice(

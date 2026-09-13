@@ -53,13 +53,14 @@ Tap **Add to Inventory & Cart** → product saved and added to cart.
 
 ---
 
-### Method 5: Barcode Scanner (Optional)
+### Method 5: Scan Product Label (Recommended)
 
-1. Tap **QR scanner** icon
-2. Scan label → product found and add dialog opens
-3. Stays on billing screen (does not exit)
+1. Tap **barcode scanner** icon on Billing screen
+2. Scan **CODE128 barcode** on printed product label
+3. App looks up product by barcode → item added to cart
+4. Stays on billing screen (does not exit)
 
-**Tip:** Reprint barcode labels after app updates so printed codes match inventory (thermal print uses bitmap encoding).
+**Tip:** Reprint labels after changing product barcode, MRP, or discount in Inventory.
 
 ---
 
@@ -83,7 +84,7 @@ Tap **Add to Inventory & Cart** → product saved and added to cart.
 ## Receipt & PDF
 
 - **Custom footer** — Settings → Edit Shop Details → Footer (left-aligned on bill)
-- **Invoice QR** — right side of footer (`INV:…|AMT:…|DT:…`)
+- **Invoice QR** — right side of footer (`INV:…|SC:…|AMT:…|DT:…`)
 - **TOTAL DISCOUNT**, item lines with Rs and unit, Total Items after Gross Total
 - Bills list shows amount **excluding GST**
 
@@ -106,6 +107,8 @@ Tap **Add to Inventory & Cart** → product saved and added to cart.
 | Edit price in cart | ✅ |
 | Save bills & print | ✅ |
 | Barcode labels (print/PDF from Inventory) | ✅ |
+| Scan label CODE128 at billing | ✅ |
+| Dual printers (receipt 80 mm + label 2×1.5 in) | ✅ |
 | Custom footer + QR on bills | ✅ |
 
 ---
@@ -124,8 +127,8 @@ Tap **Add to Inventory & Cart** → product saved and added to cart.
 
 | Issue | Try |
 |-------|-----|
-| Scan says product not found | Add as new item, or reprint barcode label |
-| Printed barcode wrong number | Update app, reprint label (bitmap print fix) |
+| Scan says product not found | Reprint label; confirm barcode matches inventory |
+| Label print misaligned | See [PRINTING_GUIDE.md](PRINTING_GUIDE.md) — gap sensor, 2×1.5 in labels |
 | Can’t save shop details (phone) | Phone is optional — leave blank |
 
 ---

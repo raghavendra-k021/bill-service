@@ -121,4 +121,15 @@ class Validators {
     }
     return null;
   }
+
+  static String? validateShopCode(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Shop code is required for label QR';
+    }
+    final code = value.trim().toUpperCase();
+    if (!RegExp(r'^[A-Z0-9]{2,8}$').hasMatch(code)) {
+      return 'Use 2-8 letters or numbers (e.g. SRT)';
+    }
+    return null;
+  }
 }

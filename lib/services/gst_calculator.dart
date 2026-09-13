@@ -1,3 +1,5 @@
+import '../utils/price_utils.dart';
+
 class GSTCalculator {
   /// GST is applied after discount for each item: discount first, then GST on the discounted amount.
   /// Uses the product's GST % from Inventory.
@@ -10,12 +12,12 @@ class GSTCalculator {
   }) {
     // Line total before discount
     final baseAmount = price * quantity;
-    final discountAmount = baseAmount * (discountPercent / 100);
-    // Amount after discount = taxable base for GST
-    final taxableAmount = baseAmount - discountAmount;
-    // GST applied on the discounted amount
-    final gstAmount = taxableAmount * (gstRate / 100);
-    final totalAmount = taxableAmount + gstAmount;
+    final discountAmount =
+        PriceUtils.discountAmount(baseAmount, discountPercent);
+    final taxableAmount =
+        PriceUtils.roundRupee(baseAmount - discountAmount);
+    final gstAmount = PriceUtils.roundRupee(taxableAmount * (gstRate / 100));
+    final totalAmount = PriceUtils.roundRupee(taxableAmount + gstAmount);
 
     // Split GST for intra-state (CGST + SGST) or inter-state (IGST)
     double cgst = 0.0;
@@ -25,8 +27,8 @@ class GSTCalculator {
     if (isInterState) {
       igst = gstAmount;
     } else {
-      cgst = gstAmount / 2;
-      sgst = gstAmount / 2;
+      cgst = PriceUtils.roundRupee(gstAmount / 2);
+      sgst = PriceUtils.roundRupee(gstAmount - cgst);
     }
 
     return GSTCalculation(
@@ -62,13 +64,13 @@ class GSTCalculator {
     }
 
     return InvoiceGSTSummary(
-      subtotal: totalSubtotal,
-      discountAmount: totalDiscount,
-      cgst: totalCGST,
-      sgst: totalSGST,
-      igst: totalIGST,
-      gstAmount: totalGST,
-      totalAmount: totalAmount,
+      subtotal: PriceUtils.roundRupee(totalSubtotal),
+      discountAmount: PriceUtils.roundRupee(totalDiscount),
+      cgst: PriceUtils.roundRupee(totalCGST),
+      sgst: PriceUtils.roundRupee(totalSGST),
+      igst: PriceUtils.roundRupee(totalIGST),
+      gstAmount: PriceUtils.roundRupee(totalGST),
+      totalAmount: PriceUtils.roundRupee(totalAmount),
     );
   }
 }

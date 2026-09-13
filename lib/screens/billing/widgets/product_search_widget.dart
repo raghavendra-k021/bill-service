@@ -4,10 +4,15 @@ import 'package:provider/provider.dart';
 import '../../../app_state.dart';
 import '../../../services/inventory_service.dart';
 import '../../../models/product.dart';
+import '../../../utils/formatters.dart';
 import '../../../widgets/custom_text_field.dart';
 
 class ProductSearchWidget extends StatefulWidget {
-  final Function(ProductModel) onProductSelected;
+  final void Function(
+    ProductModel product, {
+    double? scannedUnitPrice,
+    double? scannedDiscountPercent,
+  }) onProductSelected;
   final void Function(String query)? onAddNewItem;
 
   const ProductSearchWidget({
@@ -77,9 +82,10 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
     await _handleScannedBarcode(result.trim());
   }
 
-  Future<void> _handleScannedBarcode(String barcode) async {
+  Future<void> _handleScannedBarcode(String scannedValue) async {
+    final normalized = scannedValue.trim().replaceAll('\uFEFF', '');
     try {
-      final product = await _inventoryService.getProductByBarcode(barcode);
+      final product = await _inventoryService.getProductByBarcode(normalized);
       if (!mounted) return;
 
       if (product != null) {
@@ -92,7 +98,7 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
       }
 
       // Fallback: prefix search (e.g. partial reads)
-      await _performSearch(barcode);
+      await _performSearch(normalized);
       if (!mounted) return;
 
       if (_searchResults.length == 1) {
@@ -103,14 +109,14 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
         });
       } else if (_searchResults.isEmpty) {
         if (widget.onAddNewItem != null) {
-          widget.onAddNewItem!(barcode);
+          widget.onAddNewItem!(normalized);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No product found for barcode: $barcode')),
+            SnackBar(content: Text('No product found for barcode: $normalized')),
           );
         }
       } else {
-        _searchController.text = barcode;
+        _searchController.text = normalized;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Multiple matches found. Tap a product to add.'),
@@ -260,7 +266,7 @@ class _ProductSearchWidgetState extends State<ProductSearchWidget> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                '₹${product.sellingPrice.toStringAsFixed(2)}',
+                                Formatters.formatCurrency(product.sellingPrice),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
@@ -343,6 +349,14 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       setState(() {
         _controller = MobileScannerController(
           detectionSpeed: DetectionSpeed.noDuplicates,
+          formats: const [
+            BarcodeFormat.code128,
+            BarcodeFormat.code39,
+            BarcodeFormat.ean13,
+            BarcodeFormat.ean8,
+            BarcodeFormat.upcA,
+            BarcodeFormat.upcE,
+          ],
         );
         _scannerReady = true;
       });
@@ -353,7 +367,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     if (_scanHandled || !mounted) return;
 
     for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue?.trim();
+      final value = _readScannedValue(barcode);
       if (value == null || value.isEmpty) continue;
 
       _scanHandled = true;
@@ -363,6 +377,16 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
     }
   }
 
+  String? _readScannedValue(Barcode barcode) {
+    final raw = barcode.rawValue?.trim();
+    if (raw != null && raw.isNotEmpty) return raw;
+
+    final display = barcode.displayValue?.trim();
+    if (display != null && display.isNotEmpty) return display;
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -370,9 +394,27 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
         title: const Text('Scan Barcode'),
       ),
       body: _scannerReady && _controller != null
-          ? MobileScanner(
-              controller: _controller!,
-              onDetect: _onBarcodeDetected,
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(
+                  controller: _controller!,
+                  onDetect: _onBarcodeDetected,
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: double.infinity,
+                    color: Colors.black54,
+                    padding: const EdgeInsets.all(12),
+                    child: const Text(
+                      'Center the barcode on the label. Hold steady 20–30 cm away.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
             )
           : const Center(
               child: Column(

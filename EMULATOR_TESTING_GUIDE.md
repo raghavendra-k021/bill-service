@@ -4,11 +4,15 @@
 
 ## ✅ Yes, the app can be tested on Android Emulator!
 
-Most features work on emulator. **Camera barcode scan** and **Bluetooth print** need a physical device for full testing (receipt layout, barcode labels, invoice QR on thermal paper).
+Most features work on emulator. **Camera scan** (label CODE128 / barcode) and **Bluetooth print** (receipt 80 mm + label 2×1.5 in) need a physical device for full testing.
 
 ### Recent features to verify on device
 
-- Barcode label **thermal print** matches screen (scan printed label in billing)
+- **CODE128 product labels** (2"×1.5") — MRP, -10%, SRT PRICE, barcode; billing scans barcode
+- **Dual Bluetooth printers** — receipt (80 mm bills) and label (P58D) as separate connections in Settings
+- **Label copy count** — print multiple identical labels in one job
+- **Billing scan** — scan label **CODE128 barcode** → lookup product → auto-add to cart at SRT PRICE
+- **Shop code** — Settings → Edit Shop Details (default **SRT**); reprint labels after change
 - **Invoice QR** on receipt (footer left, QR right)
 - **Add new item** from billing → inventory + cart
 - **Sales report** excl/incl GST split and Excel export
@@ -229,7 +233,8 @@ flutter run
    - Add/Edit/Delete products ✅
    - Search products ✅
    - Stock management ✅
-   - Barcode label screen (view, Share/Save as PDF) ✅
+   - **Barcode label screen** — preview layout, set copy count, Share/Save as PDF ✅
+   - Edit **shop code** via Settings → Edit Shop Details (admin) ✅
    - All CRUD operations ✅
 
 4. **Customer Management**
@@ -260,21 +265,24 @@ flutter run
    - Excel export ✅
 
 8. **Settings**
-   - Shop details ✅
+   - Shop details + **shop code** (used on invoice QR; default **SRT**) ✅
+   - Dual printer UI (connect/test cards) — pairing not on emulator ⚠️
    - User management ✅
-   - All settings ✅
+   - All other settings ✅
 
 ### ⚠️ Features with Limitations
 
-1. **Barcode Scanner (Camera)**
-   - **Status:** Limited functionality
-   - **Workaround:** Use manual search or browse products
-   - **Note:** Some emulators support webcam as camera
+1. **Camera Scanner (CODE128 / Barcode)**
+   - **Status:** Limited on emulator
+   - **Workaround:** Use manual search, browse products, or tap items in list
+   - **Note:** Scanning printed **label barcode** at billing needs a physical device camera for real testing
 
-2. **Bluetooth Printer (Receipts & Barcode Labels)**
+2. **Bluetooth Printers (Dual)**
    - **Status:** Not available on emulator
-   - **Workaround:** Barcode labels can be viewed and shared/saved as PDF on emulator; only actual print requires a physical device with Bluetooth printer
-   - **Note:** Test receipt and barcode label printing on physical device
+   - **Receipt printer (80 mm):** bills, test receipt, invoice QR footer — physical device only
+   - **Label printer (2"×1.5" gap labels, e.g. Posiflow P58D):** product labels, test label, copy count — physical device only
+   - **Workaround on emulator:** Open **Barcode / Label** screen → preview layout → **Share / Save as PDF** (respects copy count as multiple PDF pages)
+   - **Note:** Pair both printers in Android Bluetooth settings, then connect each separately in **Settings → Printer Settings**
 
 3. **Google Drive Backup**
    - **Status:** Works if internet available
@@ -294,17 +302,22 @@ flutter run
 
 2. **Add Products**
    - Go to Inventory
-   - Add 3-5 test products
+   - Add 3-5 test products with **default discount %** (used on labels)
    - Example:
-     - Product 1: "Cotton Saree", Price: ₹500
-     - Product 2: "Silk Fabric", Price: ₹1200
-     - Product 3: "Cotton Shirt", Price: ₹800
+     - Product 1: "Cotton Saree", MRP ₹500, discount 10%
+     - Product 2: "Silk Fabric", MRP ₹1200, discount 5%
+     - Product 3: "Kanchipuram Saree", MRP ₹10000, discount 10% → NET ₹9000 on label
 
-3. **Add Customer**
+3. **Preview label (emulator)**
+   - Inventory → barcode icon on a product
+   - Expected: MRP (left), -10% (right), **SRT PRICE**, CODE128 barcode, product name
+   - Set **Number of labels** → Share PDF to verify layout (optional)
+
+4. **Add Customer**
    - Go to Customers
    - Add a test customer
 
-4. **Create Bill**
+5. **Create Bill**
    - Go to Billing
    - Tap "Browse All Products" (list icon)
    - Add products to cart
@@ -312,12 +325,12 @@ flutter run
    - Set payment mode
    - Save bill
 
-5. **View Bill**
+6. **View Bill**
    - Go to Bills
    - Open the bill you just created
    - Verify all details
 
-6. **Generate Report**
+7. **Generate Report**
    - Go to Reports
    - Select date range
    - View sales and GST reports
@@ -590,7 +603,9 @@ adb install build/app/outputs/flutter-apk/app-debug.apk
 - [ ] Create bills
 - [ ] View bills
 - [ ] Generate reports
-- [ ] Settings work
+- [ ] Barcode label preview (MRP, SRT PRICE, CODE128 layout)
+- [ ] Label PDF share (optional; multi-page if copy count > 1)
+- [ ] Shop code visible in Settings summary / Edit Shop Details
 
 ### Data Persistence ✅
 
@@ -618,8 +633,10 @@ adb install build/app/outputs/flutter-apk/app-debug.apk
 | **Product Search** | ✅ Works | ✅ Works |
 | **Database** | ✅ Works | ✅ Works |
 | **Reports** | ✅ Works | ✅ Works |
-| **Camera/Barcode** | ⚠️ Limited | ✅ Full |
-| **Bluetooth Printer** | ❌ No | ✅ Works |
+| **Camera / Barcode scan** | ⚠️ Limited | ✅ Full |
+| **Receipt printer (80 mm)** | ❌ No | ✅ Works |
+| **Label printer (2"×1.5")** | ❌ No | ✅ Works |
+| **Label PDF preview** | ✅ Works | ✅ Works |
 | **Performance** | ⚠️ Slower | ✅ Faster |
 | **Testing Speed** | ✅ Fast setup | ⚠️ Slower setup |
 
@@ -662,8 +679,13 @@ Test on each to ensure compatibility
 - Settings and configuration
 
 **What's Limited:**
-- Camera/barcode scanning (use manual search)
-- Bluetooth printing (test on physical device)
+- Camera / **label barcode** scan at billing (use manual search on emulator)
+- Bluetooth printing — **two printers** (receipt + label); test on physical device
+
+**Physical device only (recommended final test):**
+- Connect **receipt** and **label** printers in Settings
+- Print test receipt + test label
+- Scan printed **label barcode** at billing → item auto-added at SRT PRICE
 
 **Best Practice:**
 - Use emulator for development and most testing

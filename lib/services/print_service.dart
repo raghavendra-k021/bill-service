@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../database/app_database.dart';
 import '../models/invoice.dart';
 import '../models/printer_device.dart';
+import '../utils/label_qr_codec.dart';
+import '../utils/price_utils.dart';
 import '../models/printer_scan_result.dart';
 import '../models/product.dart';
 
@@ -22,45 +24,39 @@ class PrintService {
   final AppDatabase database;
   final FlutterClassicBluetooth _classicBluetooth = FlutterClassicBluetooth();
 
-  BtcConnection? _sppConnection;
-  BluetoothDevice? _bleDevice;
-  PrinterConnectionType? _connectionType;
-  String? _connectedName;
-  String? _connectedAddress;
+  final _PrinterSlot _receipt = _PrinterSlot();
+  final _PrinterSlot _label = _PrinterSlot();
 
-  static const _prefAddress = 'printer_address';
-  static const _prefName = 'printer_name';
-  static const _prefType = 'printer_type';
+  static const _legacyPrefAddress = 'printer_address';
+  static const _legacyPrefName = 'printer_name';
+  static const _legacyPrefType = 'printer_type';
 
-  bool get isConnected {
-    if (_connectionType == PrinterConnectionType.spp) {
-      return _sppConnection?.isConnected ?? false;
-    }
-    if (_connectionType == PrinterConnectionType.ble) {
-      return _bleDevice != null;
-    }
-    return false;
-  }
+  _PrinterSlot _slot(PrinterRole role) =>
+      role == PrinterRole.receipt ? _receipt : _label;
 
-  String? get connectedPrinterLabel {
-    if (!isConnected || _connectedName == null) return null;
-    final type = _connectionType == PrinterConnectionType.spp ? 'SPP' : 'BLE';
-    return '$_connectedName ($type)';
-  }
+  String _prefKey(PrinterRole role, String field) =>
+      '${role.name}_printer_$field';
 
-  PrinterDevice? get connectedDevice {
-    if (!isConnected ||
-        _connectedName == null ||
-        _connectedAddress == null ||
-        _connectionType == null) {
-      return null;
-    }
-    return PrinterDevice(
-      name: _connectedName!,
-      address: _connectedAddress!,
-      type: _connectionType!,
-    );
-  }
+  /// Receipt printer connected (80 mm bills).
+  bool get isReceiptConnected => _receipt.isConnected;
+
+  /// Label printer connected (58 mm / 50×30 mm barcodes).
+  bool get isLabelConnected => _label.isConnected;
+
+  /// Backward compatible — means receipt printer.
+  bool get isConnected => isReceiptConnected;
+
+  String? get connectedReceiptLabel => _receipt.label;
+
+  String? get connectedLabelPrinterLabel => _label.label;
+
+  String? get connectedPrinterLabel => connectedReceiptLabel;
+
+  PrinterDevice? get connectedReceiptDevice => _receipt.device;
+
+  PrinterDevice? get connectedLabelDevice => _label.device;
+
+  PrinterDevice? get connectedDevice => connectedReceiptDevice;
 
   Future<void> _ensureConnectPermission() async {
     var status = await _classicBluetooth.checkPermissions(
@@ -251,7 +247,9 @@ class PrintService {
     }
 
     return PrinterScanResult(
-      connectedInApp: connectedDevice,
+      connectedReceipt: connectedReceiptDevice,
+      connectedLabel: connectedLabelDevice,
+      connectedInApp: connectedReceiptDevice,
       pairedSpp: pairedSpp,
       pairedBle: pairedBle,
       discovered: discovered,
@@ -264,116 +262,169 @@ class PrintService {
     return result.allDevices;
   }
 
-  Future<bool> connectToPrinter(PrinterDevice device) async {
-    await disconnectPrinter();
+  Future<bool> connectToPrinter(
+    PrinterDevice device, {
+    PrinterRole role = PrinterRole.receipt,
+  }) async {
+    await disconnectPrinter(role: role);
 
+    final slot = _slot(role);
     try {
       if (device.type == PrinterConnectionType.spp) {
         await _ensureBluetoothReady();
-        _sppConnection = await _classicBluetooth.connect(
+        slot.sppConnection = await _classicBluetooth.connect(
           address: device.address,
           uuid: BtcUuid.spp,
           timeout: const Duration(seconds: 15),
         );
-        _connectionType = PrinterConnectionType.spp;
-        _connectedName = device.name;
-        _connectedAddress = device.address;
+        slot.connectionType = PrinterConnectionType.spp;
+        slot.name = device.name;
+        slot.address = device.address;
       } else {
         await _ensureBluetoothReady();
         final bleDevice = BluetoothDevice.fromId(device.address);
         await bleDevice.connect(timeout: const Duration(seconds: 10));
-        _bleDevice = bleDevice;
-        _connectionType = PrinterConnectionType.ble;
-        _connectedName = device.name;
-        _connectedAddress = device.address;
+        slot.bleDevice = bleDevice;
+        slot.connectionType = PrinterConnectionType.ble;
+        slot.name = device.name;
+        slot.address = device.address;
       }
 
-      await _savePrinterPreference(device);
+      await _savePrinterPreference(device, role);
       return true;
     } catch (_) {
-      await disconnectPrinter();
+      await disconnectPrinter(role: role);
       return false;
     }
   }
 
-  Future<bool> disconnectPrinter() async {
-    if (_sppConnection != null) {
-      try {
-        await _sppConnection!.finish();
-      } catch (_) {}
-      _sppConnection?.dispose();
-      _sppConnection = null;
+  Future<bool> disconnectPrinter({PrinterRole? role}) async {
+    if (role == null) {
+      await _receipt.disconnect();
+      await _label.disconnect();
+      return true;
     }
-
-    if (_bleDevice != null) {
-      try {
-        await _bleDevice!.disconnect();
-      } catch (_) {}
-      _bleDevice = null;
-    }
-
-    _connectionType = null;
-    _connectedName = null;
-    _connectedAddress = null;
+    await _slot(role).disconnect();
     return true;
   }
 
-  Future<bool> restoreSavedPrinter() async {
-    final prefs = await SharedPreferences.getInstance();
-    final address = prefs.getString(_prefAddress);
-    final name = prefs.getString(_prefName);
-    final typeName = prefs.getString(_prefType);
-
-    if (address == null || name == null || typeName == null) {
-      return false;
+  Future<void> _migrateLegacyPrinterPrefs(SharedPreferences prefs) async {
+    if (prefs.getString(_prefKey(PrinterRole.receipt, 'address')) != null) {
+      return;
     }
+    final legacyAddress = prefs.getString(_legacyPrefAddress);
+    final legacyName = prefs.getString(_legacyPrefName);
+    final legacyType = prefs.getString(_legacyPrefType);
+    if (legacyAddress == null || legacyName == null || legacyType == null) {
+      return;
+    }
+    await prefs.setString(_prefKey(PrinterRole.receipt, 'address'), legacyAddress);
+    await prefs.setString(_prefKey(PrinterRole.receipt, 'name'), legacyName);
+    await prefs.setString(_prefKey(PrinterRole.receipt, 'type'), legacyType);
+  }
 
+  Future<PrinterDevice?> _loadSavedPrinter(
+    SharedPreferences prefs,
+    PrinterRole role,
+  ) async {
+    final address = prefs.getString(_prefKey(role, 'address'));
+    final name = prefs.getString(_prefKey(role, 'name'));
+    final typeName = prefs.getString(_prefKey(role, 'type'));
+    if (address == null || name == null || typeName == null) return null;
     final type = typeName == PrinterConnectionType.spp.name
         ? PrinterConnectionType.spp
         : PrinterConnectionType.ble;
+    return PrinterDevice(name: name, address: address, type: type);
+  }
 
-    return connectToPrinter(
-      PrinterDevice(name: name, address: address, type: type),
-    );
+  Future<bool> restoreSavedPrinter() async {
+    return restoreSavedPrinters();
+  }
+
+  Future<bool> restoreSavedPrinters() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _migrateLegacyPrinterPrefs(prefs);
+
+    var any = false;
+    final receipt = await _loadSavedPrinter(prefs, PrinterRole.receipt);
+    if (receipt != null) {
+      any = await connectToPrinter(receipt, role: PrinterRole.receipt) || any;
+    }
+    final label = await _loadSavedPrinter(prefs, PrinterRole.label);
+    if (label != null) {
+      any = await connectToPrinter(label, role: PrinterRole.label) || any;
+    }
+    return any;
   }
 
   Future<bool> printTestPage() async {
+    if (!isReceiptConnected) {
+      throw Exception('Receipt printer not connected');
+    }
     final profile = await CapabilityProfile.load();
     final generator = Generator(PaperSize.mm80, profile);
     final bytes = <int>[
-      ...generator.text('Bill Service - Printer Test',
+      ...generator.text('Bill Service - Receipt Test',
           styles: const PosStyles(bold: true, align: PosAlign.center)),
-      ...generator.text('Connection: ${connectedPrinterLabel ?? "Unknown"}'),
-      ...generator.text('If you can read this, printing works.'),
+      ...generator.text('Connection: ${connectedReceiptLabel ?? "Unknown"}'),
+      ...generator.text('If you can read this, receipt printing works.'),
       ...generator.feed(2),
       ...generator.cut(),
     ];
-    return _sendBytes(bytes);
+    return _sendBytes(bytes, PrinterRole.receipt);
+  }
+
+  Future<bool> printLabelTestPage() async {
+    if (!isLabelConnected) {
+      throw Exception('Label printer not connected');
+    }
+    return printBarcodeLabel(
+      ProductModel(
+        barcode: '101000',
+        name: 'Test Label',
+        purchasePrice: 0,
+        sellingPrice: 100,
+        gstPercent: 5,
+        currentStock: 0,
+        minStockAlert: 0,
+        unit: 'pcs',
+      ),
+    );
   }
 
   Future<bool> printReceipt(InvoiceModel invoice) async {
-    if (!isConnected) {
-      throw Exception('No printer connected');
+    if (!isReceiptConnected) {
+      throw Exception('Receipt printer not connected. Set it up in Settings.');
     }
 
     try {
       final shopSettings =
           await database.select(database.shopSettings).getSingleOrNull();
-      return await _sendBytes(await _buildReceiptBytes(invoice, shopSettings));
+      return await _sendBytes(
+        await _buildReceiptBytes(invoice, shopSettings),
+        PrinterRole.receipt,
+      );
     } catch (e) {
       throw Exception('Failed to print: $e');
     }
   }
 
-  Future<bool> printBarcodeLabel(ProductModel product) async {
-    if (!isConnected) {
+  Future<bool> printBarcodeLabel(
+    ProductModel product, {
+    int copies = 1,
+  }) async {
+    if (!isLabelConnected) {
       throw Exception(
-        'No printer connected. Connect a printer in Settings first.',
+        'Label printer not connected. Connect the P58D label printer in Settings.',
       );
     }
 
+    final count = copies.clamp(1, 999);
     try {
-      return await _sendBytes(await _buildBarcodeLabelBytes(product));
+      return await _sendBytes(
+        await _buildBarcodeLabelBytes(product, copies: count),
+        PrinterRole.label,
+      );
     } catch (e) {
       throw Exception('Failed to print barcode: $e');
     }
@@ -476,10 +527,14 @@ class PrintService {
 
     double totalItemDiscount = 0.0;
     for (final item in invoice.items) {
-      totalItemDiscount +=
-          (item.unitPrice * item.quantity) * (item.discountPercent / 100);
+      totalItemDiscount += PriceUtils.discountAmount(
+        item.unitPrice * item.quantity,
+        item.discountPercent,
+      );
     }
-    final totalSaved = invoice.discountAmount + totalItemDiscount;
+    final totalSaved = PriceUtils.roundRupee(
+      invoice.discountAmount + totalItemDiscount,
+    );
     if (totalSaved > 0) {
       bytes.addAll([
         ..._resetBodyStyles(generator),
@@ -525,11 +580,13 @@ class PrintService {
     for (final item in invoice.items) {
       final lineAmount = item.unitPrice * item.quantity;
       final discount = item.discountPercent > 0
-          ? lineAmount * (item.discountPercent / 100)
+          ? PriceUtils.discountAmount(lineAmount, item.discountPercent)
           : invoice.discountAmount > 0 && sumLineAmounts > 0
-              ? (lineAmount / sumLineAmounts) * invoice.discountAmount
+              ? PriceUtils.roundRupee(
+                  (lineAmount / sumLineAmounts) * invoice.discountAmount,
+                )
               : 0.0;
-      final total = lineAmount - discount;
+      final total = PriceUtils.roundRupee(lineAmount - discount);
 
       bytes.addAll([
         ...generator.text(item.productName, styles: itemLineStyle),
@@ -634,10 +691,13 @@ class PrintService {
         ? shopSettings.footer!.trim()
         : 'Thank you for your business!';
     bytes.addAll(
-      generator.image(
+      generator.imageRaster(
         buildReceiptFooterWithQr(
           footerText,
-          invoiceQrPayload(invoice),
+          invoiceQrPayload(
+            invoice,
+            shopCode: shopSettings?.shopCode,
+          ),
         ),
         align: PosAlign.center,
       ),
@@ -889,7 +949,7 @@ class PrintService {
     );
   }
 
-  String _formatCurrency(double amount) => 'Rs.${amount.toStringAsFixed(2)}';
+  String _formatCurrency(double amount) => PriceUtils.formatRs(amount);
 
   String _formatUnitShort(String unit) {
     final normalized = unit.toLowerCase();
@@ -932,25 +992,34 @@ class PrintService {
     return '${invoice.items.length} / Qty : $totalQtyStr';
   }
 
-  /// QR payload encoded on each bill (invoice no, amount, date).
-  static String invoiceQrPayload(InvoiceModel invoice) {
+  /// QR payload on each bill — invoice no, shop code, amount, date (pipe-separated).
+  static String invoiceQrPayload(
+    InvoiceModel invoice, {
+    String? shopCode,
+  }) {
+    final sc = shopCode?.trim().isNotEmpty == true
+        ? shopCode!.trim().toUpperCase()
+        : LabelQrCodec.defaultShopCode;
     final d = invoice.invoiceDate;
     final date =
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-    return 'INV:${invoice.invoiceNumber}|AMT:${invoice.totalAmount.toStringAsFixed(2)}|DT:$date';
+    final amt = PriceUtils.roundRupee(invoice.totalAmount).toStringAsFixed(2);
+    return 'INV:${invoice.invoiceNumber}|SC:$sc|AMT:$amt|DT:$date';
   }
 
-  img.Image buildInvoiceQrBitmap(String payload, {int size = 110}) {
+  img.Image buildInvoiceQrBitmap(String payload, {int size = 120}) {
+    const quietZone = 10;
     final image = img.Image(width: size, height: size);
     img.fill(image, color: img.ColorRgb8(255, 255, 255));
+    final codeSize = size - (2 * quietZone);
     drawBarcode(
       image,
       bw.Barcode.qrCode(),
       payload,
-      x: 0,
-      y: 0,
-      width: size,
-      height: size,
+      x: quietZone,
+      y: quietZone,
+      width: codeSize,
+      height: codeSize,
     );
     return image;
   }
@@ -959,7 +1028,7 @@ class PrintService {
   img.Image buildReceiptFooterWithQr(String footerText, String qrPayload) {
     const paperWidth = 576;
     const padding = 8;
-    const qrSize = 110;
+    const qrSize = 120;
     const qrRightPad = 6;
     const lineHeight = 26;
     final footerFont = img.arial24;
@@ -1001,77 +1070,325 @@ class PrintService {
     return canvas;
   }
 
-  /// Renders CODE128 bars the same way as the on-screen/PDF barcode preview.
-  img.Image _buildBarcodeBitmap(String barcodeValue) {
-    const imageWidth = 400;
-    const imageHeight = 100;
-    const barcodeWidth = 360;
-    const barcodeHeight = 72;
-    final image = img.Image(width: imageWidth, height: imageHeight);
+  /// 58 mm head — 384 dots wide; 1.5" label face ≈ 252 dots (gap sensor pitch).
+  static const _labelPaperWidth = 384;
+  static const _labelPitchHeightDots = 252;
+
+  /// Trigger printer gap sensor to stop on next label (no extra blank lines).
+  List<int> _feedToNextLabelGap() => const [0x1D, 0x56, 0x01]; // GS V 1
+
+  img.Image _padLabelToPitch(img.Image trimmed) {
+    if (trimmed.height == _labelPitchHeightDots) return trimmed;
+    if (trimmed.height > _labelPitchHeightDots) {
+      return img.copyCrop(
+        trimmed,
+        x: 0,
+        y: 0,
+        width: trimmed.width,
+        height: _labelPitchHeightDots,
+      );
+    }
+
+    final padded = img.Image(
+      width: trimmed.width,
+      height: _labelPitchHeightDots,
+    );
+    img.fill(padded, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(padded, trimmed, dstX: 0, dstY: 0);
+    return padded;
+  }
+
+  List<int> _labelRasterBytes(Generator generator, img.Image labelImage) {
+    return generator.imageRaster(
+      labelImage,
+      align: PosAlign.left,
+    );
+  }
+
+  /// Compact CODE128 bars only (human-readable text drawn on label separately).
+  img.Image buildLabelCode128Bitmap(
+    String barcodeValue, {
+    int barcodeWidth = 340,
+    int barcodeHeight = 46,
+  }) {
+    const imageWidth = 360;
+    if (barcodeValue.isEmpty || barcodeValue.length > 80) {
+      throw Exception('Barcode must be 1-80 characters for CODE128');
+    }
+
+    final image = img.Image(width: imageWidth, height: barcodeHeight);
     img.fill(image, color: img.ColorRgb8(255, 255, 255));
     drawBarcode(
       image,
       bw.Barcode.code128(),
       barcodeValue,
       x: (imageWidth - barcodeWidth) ~/ 2,
-      y: 8,
+      y: 0,
       width: barcodeWidth,
       height: barcodeHeight,
     );
     return image;
   }
 
-  Future<List<int>> _buildBarcodeLabelBytes(ProductModel product) async {
-    final profile = await CapabilityProfile.load();
-    final generator = Generator(PaperSize.mm80, profile);
-    final bytes = <int>[];
+  void _drawCenteredString(
+    img.Image canvas,
+    String text,
+    img.BitmapFont font,
+    int y,
+    int paperWidth,
+  ) {
+    final w = _measureTextWidth(font, text);
+    img.drawString(
+      canvas,
+      text,
+      font: font,
+      x: max(0, (paperWidth - w) ~/ 2),
+      y: y,
+      color: img.ColorRgb8(0, 0, 0),
+    );
+  }
 
-    final name = product.name.length > 24
-        ? '${product.name.substring(0, 21)}...'
-        : product.name;
-    bytes.addAll([
-      ...generator.text(name, styles: const PosStyles(bold: true)),
-      ...generator.text('Rs.${product.sellingPrice.toStringAsFixed(2)}'),
-      ...generator.emptyLines(1),
-    ]);
+  void _drawBoldAt(
+    img.Image canvas,
+    String text,
+    img.BitmapFont font,
+    int x,
+    int y,
+  ) {
+    for (var dx = 0; dx <= 1; dx++) {
+      img.drawString(
+        canvas,
+        text,
+        font: font,
+        x: x + dx,
+        y: y,
+        color: img.ColorRgb8(0, 0, 0),
+      );
+    }
+  }
 
-    final barcodeValue = product.barcode.trim();
-    if (barcodeValue.isEmpty || barcodeValue.length > 80) {
-      throw Exception('Barcode must be 1-80 characters for CODE128');
+  void _drawBoldCenteredString(
+    img.Image canvas,
+    String text,
+    img.BitmapFont font,
+    int y,
+    int paperWidth,
+  ) {
+    final w = _measureTextWidth(font, text);
+    _drawBoldAt(canvas, text, font, max(0, (paperWidth - w) ~/ 2), y);
+  }
+
+  img.BitmapFont _pickSharedPriceFont({
+    required String mrpText,
+    required String priceText,
+    String? discText,
+    required int paperWidth,
+    int hPad = 2,
+  }) {
+    final contentWidth = paperWidth - (2 * hPad);
+    final mrpMaxWidth = (paperWidth * 0.62).round();
+    final discMaxWidth = (paperWidth * 0.28).round();
+
+    bool fitsArial48(String text, int maxWidth) =>
+        _measureTextWidth(img.arial48, text) <= maxWidth;
+
+    if (!fitsArial48(priceText, contentWidth) ||
+        !fitsArial48(mrpText, mrpMaxWidth)) {
+      return img.arial24;
+    }
+    if (discText != null && !fitsArial48(discText, discMaxWidth)) {
+      return img.arial24;
+    }
+    return img.arial48;
+  }
+
+  int _fontLineHeight(img.BitmapFont font) =>
+      font == img.arial48 ? 46 : 26;
+
+  bool _labelRowHasInk(img.Image image, int y) {
+    for (var x = 0; x < image.width; x++) {
+      final pixel = image.getPixel(x, y);
+      if (pixel.r < 250 || pixel.g < 250 || pixel.b < 250) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Remove leading/trailing white rows so MRP starts at the top of the bitmap.
+  img.Image _trimLabelWhitespace(img.Image canvas, {int bottomPad = 4}) {
+    var top = 0;
+    var bottom = canvas.height - 1;
+
+    for (var y = 0; y < canvas.height; y++) {
+      if (_labelRowHasInk(canvas, y)) {
+        top = y;
+        break;
+      }
+    }
+    for (var y = canvas.height - 1; y >= top; y--) {
+      if (_labelRowHasInk(canvas, y)) {
+        bottom = y;
+        break;
+      }
     }
 
-    bytes.addAll([
-      ...generator.image(
-        _buildBarcodeBitmap(barcodeValue),
-        align: PosAlign.center,
-      ),
-      ...generator.emptyLines(1),
-      ...generator.text(
-        barcodeValue,
-        styles: const PosStyles(
-          align: PosAlign.center,
-          fontType: PosFontType.fontB,
-        ),
-      ),
-      ...generator.feed(2),
-      ...generator.cut(),
-    ]);
+    final height = min(canvas.height - top, bottom - top + 1 + bottomPad);
+    if (height <= 0 || top == 0 && height == canvas.height) {
+      return canvas;
+    }
+    return img.copyCrop(
+      canvas,
+      x: 0,
+      y: top,
+      width: canvas.width,
+      height: height,
+    );
+  }
 
+  void _drawTopMrpRow(
+    img.Image canvas,
+    String mrpText,
+    double discountPercent,
+    int y,
+    int paperWidth,
+    img.BitmapFont priceFont,
+  ) {
+    const leftPad = 2;
+    const discRightPad = 10;
+    _drawBoldAt(canvas, mrpText, priceFont, leftPad, y);
+
+    if (discountPercent <= 0) return;
+
+    final discText = '-${discountPercent.toStringAsFixed(0)}%';
+    _drawBoldAt(
+      canvas,
+      discText,
+      priceFont,
+      paperWidth - _measureTextWidth(priceFont, discText) - discRightPad,
+      y,
+    );
+  }
+
+  String _truncateLabelText(String value, int maxChars) {
+    final trimmed = value.trim();
+    if (trimmed.length <= maxChars) return trimmed;
+    return '${trimmed.substring(0, maxChars - 3)}...';
+  }
+
+  Future<img.Image> _buildLabelImage(
+    ProductModel product,
+    ShopSetting? shopSettings,
+  ) async {
+    // 58 mm head, 2"×1.5" gap labels — trim top, pad to exact pitch for gap sensor.
+    const paperWidth = _labelPaperWidth;
+    const workspaceHeight = 280;
+    const hPad = 2;
+    const smallLineHeight = 16;
+
+    final shopCode = shopSettings?.shopCode?.trim().isNotEmpty == true
+        ? shopSettings!.shopCode!.trim().toUpperCase()
+        : await LabelQrCodec.resolveShopCode(database);
+
+    final mrp = PriceUtils.roundRupee(product.sellingPrice);
+    final disc = product.defaultDiscountPercent;
+    final net = LabelQrCodec.netPriceFrom(mrp, disc);
+    final barcodeValue = product.barcode.trim();
+    if (barcodeValue.isEmpty) {
+      throw Exception('Product barcode is required for label print');
+    }
+
+    final smallFont = img.arial14;
+    final detailFont = img.arial24;
+
+    final canvas = img.Image(width: paperWidth, height: workspaceHeight);
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+
+    var y = 0;
+    final mrpText = 'MRP ${PriceUtils.formatRs(mrp)}';
+    final priceText = '$shopCode PRICE ${PriceUtils.formatRs(net)}';
+    final discText = disc > 0 ? '-${disc.toStringAsFixed(0)}%' : null;
+    final priceFont = _pickSharedPriceFont(
+      mrpText: mrpText,
+      priceText: priceText,
+      discText: discText,
+      paperWidth: paperWidth,
+      hPad: hPad,
+    );
+
+    _drawTopMrpRow(canvas, mrpText, disc, y, paperWidth, priceFont);
+    y += _fontLineHeight(priceFont);
+
+    _drawBoldCenteredString(canvas, priceText, priceFont, y, paperWidth);
+    y += _fontLineHeight(priceFont) + 2;
+
+    _drawCenteredString(
+      canvas,
+      '(incl. of all taxes)',
+      smallFont,
+      y,
+      paperWidth,
+    );
+    y += smallLineHeight + 6;
+
+    final barcodeBlock = buildLabelCode128Bitmap(barcodeValue);
+    final barcodeX = (paperWidth - barcodeBlock.width) ~/ 2;
+    img.compositeImage(canvas, barcodeBlock, dstX: barcodeX, dstY: y);
+    y += barcodeBlock.height + 4;
+
+    _drawCenteredString(canvas, barcodeValue, detailFont, y, paperWidth);
+    y += 28;
+
+    final productLine = _truncateLabelText(product.name.toUpperCase(), 22);
+    _drawCenteredString(canvas, productLine, detailFont, y, paperWidth);
+
+    final contentHeight = min(workspaceHeight, y + 28);
+    final cropped = img.copyCrop(
+      canvas,
+      x: 0,
+      y: 0,
+      width: paperWidth,
+      height: contentHeight,
+    );
+    return _padLabelToPitch(_trimLabelWhitespace(cropped));
+  }
+
+  Future<List<int>> _buildBarcodeLabelBytes(
+    ProductModel product, {
+    int copies = 1,
+  }) async {
+    final profile = await CapabilityProfile.load();
+    final generator = Generator(PaperSize.mm58, profile);
+    final shopSettings =
+        await database.select(database.shopSettings).getSingleOrNull();
+    final labelImage = await _buildLabelImage(product, shopSettings);
+    final raster = _labelRasterBytes(generator, labelImage);
+
+    final count = copies.clamp(1, 999);
+    final bytes = <int>[];
+    for (var i = 0; i < count; i++) {
+      bytes.addAll(raster);
+      if (i < count - 1) {
+        // Gap-sensor printer: feed to next sticker (auto align), not manual line feed.
+        bytes.addAll(_feedToNextLabelGap());
+      }
+    }
     return bytes;
   }
 
-  Future<bool> _sendBytes(List<int> bytes) async {
-    if (_connectionType == PrinterConnectionType.spp) {
-      return _sendBytesSpp(bytes);
+  Future<bool> _sendBytes(List<int> bytes, PrinterRole role) async {
+    final slot = _slot(role);
+    if (slot.connectionType == PrinterConnectionType.spp) {
+      return _sendBytesSpp(bytes, slot);
     }
-    if (_connectionType == PrinterConnectionType.ble) {
-      return _sendBytesBle(bytes);
+    if (slot.connectionType == PrinterConnectionType.ble) {
+      return _sendBytesBle(bytes, slot);
     }
     throw Exception('No printer connected');
   }
 
-  Future<bool> _sendBytesSpp(List<int> bytes) async {
-    final connection = _sppConnection;
+  Future<bool> _sendBytesSpp(List<int> bytes, _PrinterSlot slot) async {
+    final connection = slot.sppConnection;
     if (connection == null || !connection.isConnected) {
       throw Exception('SPP printer not connected');
     }
@@ -1085,8 +1402,8 @@ class PrintService {
     return true;
   }
 
-  Future<bool> _sendBytesBle(List<int> bytes) async {
-    final device = _bleDevice;
+  Future<bool> _sendBytesBle(List<int> bytes, _PrinterSlot slot) async {
+    final device = slot.bleDevice;
     if (device == null) {
       throw Exception('BLE printer not connected');
     }
@@ -1118,10 +1435,72 @@ class PrintService {
     throw Exception('No writable BLE characteristic found on printer');
   }
 
-  Future<void> _savePrinterPreference(PrinterDevice device) async {
+  Future<void> _savePrinterPreference(
+    PrinterDevice device,
+    PrinterRole role,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefAddress, device.address);
-    await prefs.setString(_prefName, device.name);
-    await prefs.setString(_prefType, device.type.name);
+    await prefs.setString(_prefKey(role, 'address'), device.address);
+    await prefs.setString(_prefKey(role, 'name'), device.name);
+    await prefs.setString(_prefKey(role, 'type'), device.type.name);
+  }
+}
+
+class _PrinterSlot {
+  BtcConnection? sppConnection;
+  BluetoothDevice? bleDevice;
+  PrinterConnectionType? connectionType;
+  String? name;
+  String? address;
+
+  bool get isConnected {
+    if (connectionType == PrinterConnectionType.spp) {
+      return sppConnection?.isConnected ?? false;
+    }
+    if (connectionType == PrinterConnectionType.ble) {
+      return bleDevice != null;
+    }
+    return false;
+  }
+
+  String? get label {
+    if (!isConnected || name == null) return null;
+    final type = connectionType == PrinterConnectionType.spp ? 'SPP' : 'BLE';
+    return '$name ($type)';
+  }
+
+  PrinterDevice? get device {
+    if (!isConnected ||
+        name == null ||
+        address == null ||
+        connectionType == null) {
+      return null;
+    }
+    return PrinterDevice(
+      name: name!,
+      address: address!,
+      type: connectionType!,
+    );
+  }
+
+  Future<void> disconnect() async {
+    if (sppConnection != null) {
+      try {
+        await sppConnection!.finish();
+      } catch (_) {}
+      sppConnection?.dispose();
+      sppConnection = null;
+    }
+
+    if (bleDevice != null) {
+      try {
+        await bleDevice!.disconnect();
+      } catch (_) {}
+      bleDevice = null;
+    }
+
+    connectionType = null;
+    name = null;
+    address = null;
   }
 }

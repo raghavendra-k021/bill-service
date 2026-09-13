@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/billing_service.dart';
 import '../../../utils/formatters.dart';
+import '../../../utils/price_utils.dart';
 
 class CartItemWidget extends StatelessWidget {
   final CartItem item;
@@ -79,8 +80,11 @@ class CartItemWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lineAmount = item.unitPrice * item.quantity;
-    final discount = lineAmount * (item.discountPercent / 100);
-    final total = lineAmount - discount;
+    final discount = PriceUtils.discountAmount(lineAmount, item.discountPercent);
+    final total = PriceUtils.lineTotalAfterDiscount(
+      lineAmount,
+      item.discountPercent,
+    );
     final isWholeUnit = _isWholeUnit(item.unit);
     final step = isWholeUnit ? 1.0 : 0.25;
     final minQty = isWholeUnit ? 1.0 : 0.25;
@@ -126,7 +130,7 @@ class CartItemWidget extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '₹${item.unitPrice.toStringAsFixed(2)} × $qtyDisplay ${item.unit}',
+                      '${Formatters.formatCurrency(item.unitPrice)} × $qtyDisplay ${item.unit}',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.grey[700],

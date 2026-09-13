@@ -3,6 +3,8 @@ import 'package:drift/drift.dart';
 class ShopSettings extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get shopName => text().withLength(min: 1, max: 200)();
+  /// Short code on labels and signed QR (e.g. SRT).
+  TextColumn get shopCode => text().withLength(min: 2, max: 8).nullable()();
   TextColumn get address => text().nullable()();
   TextColumn get phone => text().nullable()();
   TextColumn get email => text().nullable()();

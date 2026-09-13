@@ -38,7 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadShopSettings();
     _checkBackupStatus();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _printService.restoreSavedPrinter();
+      await _printService.restoreSavedPrinters();
       if (mounted) setState(() {});
     });
   }
@@ -73,6 +73,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return 'Tap Edit to set shop name, address, and bill footer.';
     }
     final parts = <String>[];
+    if (settings.shopCode != null && settings.shopCode!.trim().isNotEmpty) {
+      parts.add('Code: ${settings.shopCode!.trim().toUpperCase()}');
+    }
     if (settings.phone != null && settings.phone!.trim().isNotEmpty) {
       parts.add('Phone: ${settings.phone!.trim()}');
     }
@@ -142,16 +145,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _scanForPrinters() async {
+  Future<void> _scanForPrinters(PrinterRole role) async {
     setState(() => _isPrinterBusy = true);
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => _PrinterPickerDialog(
         printService: _printService,
+        role: role,
         onSelect: (device) async {
           Navigator.pop(dialogContext);
-          await _connectPrinter(device);
+          await _connectPrinter(device, role: role);
         },
       ),
     );
@@ -159,18 +163,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _isPrinterBusy = false);
   }
 
-  Future<void> _connectPrinter(PrinterDevice device) async {
+  Future<void> _connectPrinter(
+    PrinterDevice device, {
+    required PrinterRole role,
+  }) async {
     setState(() => _isPrinterBusy = true);
     try {
-      final connected = await _printService.connectToPrinter(device);
+      final connected = await _printService.connectToPrinter(device, role: role);
       if (!mounted) return;
       setState(() {});
+      final roleLabel =
+          role == PrinterRole.receipt ? 'Receipt printer' : 'Label printer';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             connected
-                ? 'Connected via ${device.typeLabel}: ${device.name}'
-                : 'Failed to connect to ${device.name}',
+                ? '$roleLabel connected via ${device.typeLabel}: ${device.name}'
+                : 'Failed to connect $roleLabel: ${device.name}',
           ),
           backgroundColor: connected ? Colors.green : Colors.red,
         ),
@@ -207,14 +216,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _disconnectPrinter() async {
+  Future<void> _printLabelTestPage() async {
     setState(() => _isPrinterBusy = true);
     try {
-      await _printService.disconnectPrinter();
+      final ok = await _printService.printLabelTestPage();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok ? 'Test label sent to printer' : 'Label test print failed',
+          ),
+          backgroundColor: ok ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Label test failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPrinterBusy = false);
+    }
+  }
+
+  Future<void> _disconnectPrinter(PrinterRole role) async {
+    setState(() => _isPrinterBusy = true);
+    try {
+      await _printService.disconnectPrinter(role: role);
       if (mounted) setState(() {});
     } finally {
       if (mounted) setState(() => _isPrinterBusy = false);
     }
+  }
+
+  Widget _buildPrinterCard({
+    required String title,
+    required String description,
+    required bool isConnected,
+    required String? connectedLabel,
+    required VoidCallback onScan,
+    required VoidCallback onTest,
+    required VoidCallback onDisconnect,
+    required String testLabel,
+  }) {
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            title: Text(title),
+            subtitle: Text(
+              isConnected
+                  ? 'Connected: $connectedLabel'
+                  : description,
+            ),
+            trailing: _isPrinterBusy
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.bluetooth_searching),
+                    tooltip: 'Scan for printers',
+                    onPressed: onScan,
+                  ),
+          ),
+          if (isConnected) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isPrinterBusy ? null : onTest,
+                      icon: const Icon(Icons.print),
+                      label: Text(testLabel),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed:
+                          _isPrinterBusy ? null : onDisconnect,
+                      icon: const Icon(Icons.link_off),
+                      label: const Text('Disconnect'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -349,61 +448,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Use separate Bluetooth connections: 80 mm for bills, 58 mm (50×30 mm labels) for barcodes.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+            ),
             const SizedBox(height: 16),
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    title: const Text('Bluetooth Printer'),
-                    subtitle: Text(
-                      _printService.isConnected
-                          ? 'Connected: ${_printService.connectedPrinterLabel}'
-                          : 'Tap the search icon to list paired and nearby printers.',
-                    ),
-                    trailing: _isPrinterBusy
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : IconButton(
-                            icon: const Icon(Icons.bluetooth_searching),
-                            tooltip: 'Scan for printers',
-                            onPressed: _scanForPrinters,
-                          ),
-                  ),
-                  if (_printService.isConnected) ...[
-                    const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed:
-                                  _isPrinterBusy ? null : _printTestPage,
-                              icon: const Icon(Icons.receipt_long),
-                              label: const Text('Print test'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed:
-                                  _isPrinterBusy ? null : _disconnectPrinter,
-                              icon: const Icon(Icons.link_off),
-                              label: const Text('Disconnect'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+            _buildPrinterCard(
+              title: 'Receipt printer (80 mm)',
+              description:
+                  'Pair your receipt printer, then tap search to connect.',
+              isConnected: _printService.isReceiptConnected,
+              connectedLabel: _printService.connectedReceiptLabel,
+              onScan: () => _scanForPrinters(PrinterRole.receipt),
+              onTest: _printTestPage,
+              onDisconnect: () => _disconnectPrinter(PrinterRole.receipt),
+              testLabel: 'Test receipt',
+            ),
+            const SizedBox(height: 12),
+            _buildPrinterCard(
+              title: 'Label printer (50×30 mm)',
+              description:
+                  'Pair your P58D label printer, then tap search to connect.',
+              isConnected: _printService.isLabelConnected,
+              connectedLabel: _printService.connectedLabelPrinterLabel,
+              onScan: () => _scanForPrinters(PrinterRole.label),
+              onTest: _printLabelTestPage,
+              onDisconnect: () => _disconnectPrinter(PrinterRole.label),
+              testLabel: 'Test label',
             ),
             if (user?.isAdmin == true) ...[
               const SizedBox(height: 32),
@@ -443,10 +515,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
 class _PrinterPickerDialog extends StatefulWidget {
   final PrintService printService;
+  final PrinterRole role;
   final ValueChanged<PrinterDevice> onSelect;
 
   const _PrinterPickerDialog({
     required this.printService,
+    required this.role,
     required this.onSelect,
   });
 
@@ -488,8 +562,11 @@ class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final roleTitle = widget.role == PrinterRole.receipt
+        ? 'Receipt printer (80 mm)'
+        : 'Label printer (50×30 mm)';
     return AlertDialog(
-      title: const Text('Bluetooth Printers'),
+      title: Text('Bluetooth — $roleTitle'),
       content: SizedBox(
         width: double.maxFinite,
         child: _buildContent(),
@@ -528,12 +605,23 @@ class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
         'No printers found.\n\n'
         '1. Pair the printer in Android Settings → Bluetooth\n'
         '2. Tap Refresh here\n'
-        '3. Choose the device marked SPP for receipt printers',
+        '3. Choose SPP for most thermal printers (recommended)',
       );
     }
 
-    final connected = widget.printService.connectedDevice;
+    final connected = widget.role == PrinterRole.receipt
+        ? widget.printService.connectedReceiptDevice
+        : widget.printService.connectedLabelDevice;
+    final otherConnected = widget.role == PrinterRole.receipt
+        ? widget.printService.connectedLabelDevice
+        : widget.printService.connectedReceiptDevice;
     final tiles = <Widget>[];
+
+    bool sameDevice(PrinterDevice? a, PrinterDevice b) {
+      if (a == null) return false;
+      return a.address.toUpperCase() == b.address.toUpperCase() &&
+          a.type == b.type;
+    }
 
     void addSection(String title, List<PrinterDevice> devices) {
       if (devices.isEmpty) return;
@@ -547,9 +635,8 @@ class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
         ),
       );
       for (final device in devices) {
-        final isConnected = connected != null &&
-            connected.address.toUpperCase() == device.address.toUpperCase() &&
-            connected.type == device.type;
+        final isConnected = sameDevice(connected, device);
+        final usedElsewhere = sameDevice(otherConnected, device);
         tiles.add(
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -559,7 +646,11 @@ class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
                   : Icons.bluetooth,
             ),
             title: Text(device.name),
-            subtitle: Text('${device.address} • ${device.typeLabel}'),
+            subtitle: Text(
+              usedElsewhere
+                  ? '${device.address} • ${device.typeLabel} • also used for ${widget.role == PrinterRole.receipt ? "labels" : "receipts"}'
+                  : '${device.address} • ${device.typeLabel}',
+            ),
             trailing: isConnected
                 ? const Icon(Icons.check_circle, color: Colors.green)
                 : null,
@@ -569,8 +660,8 @@ class _PrinterPickerDialogState extends State<_PrinterPickerDialog> {
       }
     }
 
-    addSection('Connected in app', [
-      if (result.connectedInApp != null) result.connectedInApp!,
+    addSection('Connected for this role', [
+      if (connected != null) connected,
     ]);
     addSection('Paired (SPP - recommended)', result.pairedSpp);
     addSection('Paired (BLE)', result.pairedBle);

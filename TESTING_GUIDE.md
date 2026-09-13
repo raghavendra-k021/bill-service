@@ -157,11 +157,11 @@ flutter run
    - Type in search box
    - Expected: Filters products in real-time
 
-4. **Barcode / Print Label**
-   - Tap the barcode icon (📷) next to a product
-   - Expected: Opens barcode label screen (name, price, Code 128 barcode)
-   - Tap "Share / Save as PDF" → Expected: PDF shared or saved
-   - Tap "Print to Bluetooth Printer" (if printer connected in Settings) → Expected: Label prints
+4. **Barcode Label / Print**
+   - Tap the barcode icon next to a product
+   - Expected: Label preview — **MRP** (left), **-10%** (right), **SRT PRICE**, tax line, CODE128 barcode, product name
+   - Set **Number of labels** → Tap **Print to Label Printer** (label printer connected in Settings)
+   - Tap "Share / Save as PDF" → Expected: **2"×1.5"** PDF with same layout
 
 6. **Edit Product**
    - Tap on a product
@@ -183,21 +183,28 @@ flutter run
 **Test Cases:**
 1. **Open from Inventory**
    - Tap barcode icon next to a product
-   - Expected: Name, price, Code 128 barcode matching product barcode (e.g. `101000`)
+   - Expected: **2"×1.5"** layout — MRP (left), -10% (right), SRT PRICE, barcode, product name
 
 2. **Share / Save as PDF**
    - Tap "Share / Save as PDF"
-   - Expected: PDF barcode matches on-screen value
+   - Expected: PDF matches on-screen layout; multiple pages if copy count > 1
 
-3. **Print to Bluetooth** (physical device + printer in Settings)
-   - Tap "Print to Bluetooth Printer"
-   - Expected: Printed bars and text show **same barcode as screen** (not garbled numbers like `444444` or `494849484848`)
-   - **Scan printed label** with billing scanner → product found and added to cart
+3. **Print to label printer** (Posiflow P58D + label slot in Settings)
+   - Set copy count (e.g. 2) → **Print 2 Labels**
+   - Expected: **Both labels identical** — full layout on each (MRP, discount, SRT PRICE, barcode)
 
-4. **Reprint after app update**
-   - Old labels printed before bitmap fix may scan wrong — reprint labels after updating app
+4. **Billing scan — CODE128 on label**
+   - Scan printed label barcode at billing
+   - Expected: Product auto-added to cart from inventory lookup
 
-**Expected Result:** ✅ Softcopy, PDF, and thermal print all encode the same barcode value
+5. **Shop code on label**
+   - Settings → Edit Shop Details → **Shop Code** = SRT → save → print label
+   - Expected: Line reads **SRT PRICE Rs.xxx.00**
+
+6. **Price rounding**
+   - Product MRP 112, discount 10% → label shows **SRT PRICE Rs.101.00** (not 100.80)
+
+**Expected Result:** ✅ Label print, PDF, billing barcode scan, and rounding work correctly
 
 ---
 
@@ -296,7 +303,8 @@ flutter run
    - Tap PDF or print
    - Expected: Item lines, TOTAL DISCOUNT, Gross Total, GST, payment
    - **Footer text left-aligned**; **QR code on the right**
-   - QR payload format: `INV:<no>|AMT:<total>|DT:<date>`
+   - QR payload format: `INV:<no>|SC:<shop>|AMT:<total>|DT:<date>`
+   - Scan QR with phone → readable pipe-separated text
 
 **Expected Result:** ✅ Bills viewing, PDF, and print layout correct
 
@@ -332,21 +340,21 @@ flutter run
 
 **Test Cases:**
 1. **Shop Details**
-   - Settings shows shop summary card
+   - Settings shows shop summary card (includes **shop code**)
    - Tap **Edit Shop Details**
-   - Enter name, address, logo, footer
+   - Enter name, **shop code (e.g. SRT)**, address, logo, footer
    - **Phone optional** — save with phone blank
-   - Expected: Saved; logo/footer on receipts
+   - Expected: Saved; shop code on label price line + invoice QR; logo/footer on receipts
 
 2. **Footer + QR on bills**
    - Set custom footer text
    - Save bill → PDF or print
    - Expected: Footer **left**, **QR right**; default footer if empty
 
-3. **Bluetooth Printer**
-   - Scan/connect printer (SPP preferred)
-   - Test print from Settings
-   - Print receipt and barcode label
+3. **Dual Bluetooth Printers**
+   - **Receipt printer (80 mm):** scan/connect → **Test receipt**
+   - **Label printer (2"×1.5" gap labels):** scan/connect → **Test label**
+   - Expected: Bills use receipt printer only; inventory labels use label printer only
 
 4. **Google Drive Backup**
    - Sign in and run backup (optional)

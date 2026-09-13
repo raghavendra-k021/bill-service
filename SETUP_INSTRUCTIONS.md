@@ -74,9 +74,10 @@ bill-service/lib/
 
 | Area | Notes |
 |------|--------|
-| **Billing** | Editable price/discount; add new items to inventory; barcode scan auto-adds |
-| **Barcodes** | Screen/PDF and **thermal print** use same bitmap encoding |
-| **Receipts** | Custom footer (left) + invoice QR (right); shop logo optional |
+| **Billing** | Editable price/discount; add new items to inventory; **CODE128 label scan** adds to cart |
+| **Labels** | 2"×1.5" CODE128 layout; **dual printers** (receipt 80 mm + Posiflow P58D); copy count 1–999 |
+| **Receipts** | Custom footer (left) + invoice QR (right); whole-rupee rounding with `.00` |
+| **Shop code** | Edit Shop Details → used on label price line + invoice QR `SC:` field (default SRT) |
 | **Reports** | Sales split excl/incl GST; Excel subtotal excl. GST |
 | **Shop phone** | Optional in Edit Shop Details |
 | **GST on quick-add** | Default **5%**; change in dialog or Inventory later |

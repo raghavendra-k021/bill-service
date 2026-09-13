@@ -10,7 +10,7 @@ class AppState extends ChangeNotifier {
 
   AppState(this.database) {
     printService = PrintService(database);
-    printService.restoreSavedPrinter();
+    printService.restoreSavedPrinters();
   }
 
   void setUser(UserModel? user) {

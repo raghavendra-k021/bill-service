@@ -8,6 +8,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'print_service.dart';
+import '../utils/price_utils.dart';
 
 class ReportService {
   final AppDatabase database;
@@ -15,9 +16,7 @@ class ReportService {
   ReportService(this.database);
 
   /// Formats currency for PDF (uses "Rs." instead of ₹ since PDF fonts don't support rupee symbol)
-  String _formatCurrencyForPDF(double amount) {
-    return 'Rs.${amount.toStringAsFixed(2)}';
-  }
+  String _formatCurrencyForPDF(double amount) => PriceUtils.formatRs(amount);
 
   /// Total Items line: item count and total quantity on same line (e.g. "3 / Qty : 8").
   String _totalItemsLine(InvoiceModel invoice) {
@@ -69,10 +68,12 @@ class ReportService {
   double _totalSavedAmount(InvoiceModel invoice) {
     var totalItemDiscount = 0.0;
     for (final item in invoice.items) {
-      totalItemDiscount +=
-          (item.unitPrice * item.quantity) * (item.discountPercent / 100);
+      totalItemDiscount += PriceUtils.discountAmount(
+        item.unitPrice * item.quantity,
+        item.discountPercent,
+      );
     }
-    return invoice.discountAmount + totalItemDiscount;
+    return PriceUtils.roundRupee(invoice.discountAmount + totalItemDiscount);
   }
 
   /// Bold TOTAL DISCOUNT line matching thermal print (no reverse).
@@ -369,15 +370,19 @@ class ReportService {
                     final lineAmount = item.unitPrice * item.quantity;
                     double discount;
                     if (item.discountPercent > 0) {
-                      discount = lineAmount * (item.discountPercent / 100);
+                      discount = PriceUtils.discountAmount(
+                        lineAmount,
+                        item.discountPercent,
+                      );
                     } else if (invoice.discountAmount > 0 &&
                         sumLineAmounts > 0) {
-                      discount =
-                          (lineAmount / sumLineAmounts) * invoice.discountAmount;
+                      discount = PriceUtils.roundRupee(
+                        (lineAmount / sumLineAmounts) * invoice.discountAmount,
+                      );
                     } else {
                       discount = 0.0;
                     }
-                    final total = lineAmount - discount;
+                    final total = PriceUtils.roundRupee(lineAmount - discount);
                     return pw.Padding(
                       padding: const pw.EdgeInsets.only(bottom: 4),
                       child: pw.Column(
@@ -500,7 +505,10 @@ class ReportService {
                                   shopSettings!.footer!.trim().isNotEmpty
                               ? shopSettings.footer!.trim()
                               : 'Thank you for your business!',
-                          PrintService.invoiceQrPayload(invoice),
+                          PrintService.invoiceQrPayload(
+                            invoice,
+                            shopCode: shopSettings?.shopCode,
+                          ),
                         ),
                       ),
                     ),
